@@ -7,17 +7,17 @@ import (
 )
 
 type AlterColumn struct {
-	TableName string
-	Def       spansql.ColumnDef
+	Table string
+	Def   spansql.ColumnDef
 }
 
 func (a AlterColumn) SQL() string {
-	return "ALTER TABLE " + a.TableName + " ALTER COLUMN " + a.Def.SQL()
+	return "ALTER TABLE " + a.Table + " ALTER COLUMN " + a.Def.SQL()
 }
 
 type UpdateColumn struct {
-	TableName string
-	Def       spansql.ColumnDef
+	Table string
+	Def   spansql.ColumnDef
 }
 
 func (u UpdateColumn) defaultValue() string {
@@ -38,5 +38,5 @@ func (u UpdateColumn) defaultValue() string {
 }
 
 func (u UpdateColumn) SQL() string {
-	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.TableName, u.Def.Name, u.defaultValue(), u.Def.Name)
+	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table, u.Def.Name, u.defaultValue(), u.Def.Name)
 }

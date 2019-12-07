@@ -2,46 +2,22 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
+	"reflect"
 
 	"cloud.google.com/go/spanner/spansql"
 )
 
 func main() {
-	sql1 := `
-CREATE TABLE users (
-  user_id        STRING(36) NOT NULL,
-  age            STRING(MAX) NOT NULL,
-  created_at     TIMESTAMP NOT NULL,
-  updated_at     TIMESTAMP NOT NULL,
-) PRIMARY KEY (user_id);
-
-CREATE TABLE friendships (
-  user_id        STRING(36) NOT NULL,
-  target_user_id STRING(36) NOT NULL,
-  created_at     TIMESTAMP NOT NULL,
-  updated_at     TIMESTAMP NOT NULL,
-) PRIMARY KEY (user_id, target_user_id),
-INTERLEAVE IN PARENT users ON DELETE CASCADE;
-`
-	sql2 := `
-CREATE TABLE users (
-  user_id        STRING(36) NOT NULL,
-  name           STRING(36) NOT NULL,
-  age            INT64,
-  created_at     TIMESTAMP NOT NULL,
-  updated_at     TIMESTAMP NOT NULL,
-) PRIMARY KEY (user_id);
-
-CREATE TABLE friendships (
-  user_id        STRING(36) NOT NULL,
-  target_user_id STRING(36) NOT NULL,
-  friendship_id  STRING(36) NOT NULL,
-  created_at     TIMESTAMP NOT NULL,
-  updated_at     TIMESTAMP NOT NULL,
-) PRIMARY KEY (user_id, target_user_id),
-INTERLEAVE IN PARENT users ON DELETE CASCADE;
-`
-	ddl1, err := spansql.ParseDDL(sql1)
+	schema1, err := ioutil.ReadFile("./tmp/schema1.sql")
+	if err != nil {
+		panic(err)
+	}
+	schema2, err := ioutil.ReadFile("./tmp/schema2.sql")
+	if err != nil {
+		panic(err)
+	}
+	ddl1, err := spansql.ParseDDL(string(schema1))
 	if err != nil {
 		panic(err)
 	}
@@ -50,7 +26,7 @@ INTERLEAVE IN PARENT users ON DELETE CASCADE;
 		panic(err)
 	}
 
-	ddl2, err := spansql.ParseDDL(sql2)
+	ddl2, err := spansql.ParseDDL(string(schema2))
 	if err != nil {
 		panic(err)
 	}
@@ -63,11 +39,11 @@ INTERLEAVE IN PARENT users ON DELETE CASCADE;
 
 type Database struct {
 	Tables  []spansql.CreateTable
-	Indexes []spansql.CreateIndex
+	Indexes map[string][]spansql.CreateIndex
 }
 
 func NewDatabase(ddl spansql.DDL) (*Database, error) {
-	db := Database{}
+	db := Database{Indexes: make(map[string][]spansql.CreateIndex)}
 
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
@@ -75,22 +51,13 @@ func NewDatabase(ddl spansql.DDL) (*Database, error) {
 			db.Tables = append(db.Tables, stmt)
 			break
 		case spansql.CreateIndex:
-			db.Indexes = append(db.Indexes, stmt)
+			db.Indexes[stmt.Table] = append(db.Indexes[stmt.Table], stmt)
 			break
 		default:
 			return nil, fmt.Errorf("unexpected ddl type: %v", stmt)
 		}
 	}
 	return &db, nil
-}
-
-func (d *Database) Index(name string) *spansql.CreateIndex {
-	for _, i := range d.Indexes {
-		if i.Name == name {
-			return &i
-		}
-	}
-	return nil
 }
 
 func findPrimryKeyByColumn(keys []spansql.KeyPart, column string) (key spansql.KeyPart, exists bool) {
@@ -136,7 +103,7 @@ func findColumnByName(cols []spansql.ColumnDef, name string) (col spansql.Column
 	return
 }
 
-func sameType(x, y spansql.ColumnDef) bool {
+func typeEqual(x, y spansql.ColumnDef) bool {
 	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
 }
 
@@ -152,21 +119,21 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 		fromCol, exists := findColumnByName(from.Columns, toCol.Name)
 
 		if exists {
-			if fromCol == toCol {
+			if reflect.DeepEqual(fromCol, toCol) {
 				continue
 			}
 
-			if sameType(fromCol, toCol) {
+			if typeEqual(fromCol, toCol) {
 				if !fromCol.NotNull && toCol.NotNull {
-					ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
 				}
-				ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 			} else {
 				ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}}.SQL())
 				if toCol.NotNull {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
-					ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
-					ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 				} else {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
 				}
@@ -174,8 +141,8 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 		} else {
 			if toCol.NotNull {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
-				ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
-				ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+				ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
+				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 			} else {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
 			}
@@ -189,6 +156,47 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 				Alteration: spansql.DropColumn{Name: fromCol.Name},
 			}.SQL())
 		}
+	}
+	return ddls
+}
+
+func findIndexByName(indexes []spansql.CreateIndex, name string) (index spansql.CreateIndex, exists bool) {
+	for _, i := range indexes {
+		if i.Name == name {
+			index = i
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func generateDDLsForDropIndex(from, to []spansql.CreateIndex) []string {
+	ddls := []string{}
+	for _, toIndex := range to {
+		fromIndex, exists := findIndexByName(from, toIndex.Name)
+
+		if exists && !reflect.DeepEqual(fromIndex, toIndex) {
+			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name}.SQL())
+		}
+	}
+	for _, fromIndex := range from {
+		if _, exists := findIndexByName(to, fromIndex.Name); !exists {
+			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name}.SQL())
+		}
+	}
+	return ddls
+}
+
+func generateDDLsForCreateIndex(from, to []spansql.CreateIndex) []string {
+	ddls := []string{}
+	for _, toIndex := range to {
+		fromIndex, exists := findIndexByName(from, toIndex.Name)
+
+		if !exists || !reflect.DeepEqual(fromIndex, toIndex) {
+			ddls = append(ddls, toIndex.SQL())
+		}
+
 	}
 	return ddls
 }
@@ -208,16 +216,19 @@ func generateDDLs(from, to *Database) {
 	ddls := []string{}
 	for _, toTable := range to.Tables {
 		fromTable, exists := findTableByName(from.Tables, toTable.Name)
-		if !exists {
-			ddls = append(ddls, toTable.SQL())
-			continue
-		}
 
-		if pkddls := generateDDLsForPrimryKey(fromTable, toTable); len(pkddls) > 0 {
-			ddls = append(ddls, pkddls...)
+		if exists {
+			ddls = append(ddls, generateDDLsForDropIndex(from.Indexes[fromTable.Name], to.Indexes[toTable.Name])...)
+
+			if pkddls := generateDDLsForPrimryKey(fromTable, toTable); len(pkddls) > 0 {
+				ddls = append(ddls, pkddls...)
+			} else {
+				ddls = append(ddls, generateDDLsForColumns(fromTable, toTable)...)
+			}
 		} else {
-			ddls = append(ddls, generateDDLsForColumns(fromTable, toTable)...)
+			ddls = append(ddls, toTable.SQL())
 		}
+		ddls = append(ddls, generateDDLsForCreateIndex(from.Indexes[fromTable.Name], to.Indexes[toTable.Name])...)
 	}
 	for _, d := range ddls {
 		fmt.Println(d)
