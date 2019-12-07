@@ -10,6 +10,7 @@ func main() {
 	sql1 := `
 CREATE TABLE users (
   user_id        STRING(36) NOT NULL,
+  age            STRING(MAX) NOT NULL,
   created_at     TIMESTAMP NOT NULL,
   updated_at     TIMESTAMP NOT NULL,
 ) PRIMARY KEY (user_id);
@@ -26,6 +27,7 @@ INTERLEAVE IN PARENT users ON DELETE CASCADE;
 CREATE TABLE users (
   user_id        STRING(36) NOT NULL,
   name           STRING(36) NOT NULL,
+  age            INT64,
   created_at     TIMESTAMP NOT NULL,
   updated_at     TIMESTAMP NOT NULL,
 ) PRIMARY KEY (user_id);
@@ -91,106 +93,97 @@ func (d *Database) Index(name string) *spansql.CreateIndex {
 	return nil
 }
 
-func findPrimryKeyByColumn(keys []spansql.KeyPart, column string) *spansql.KeyPart {
-	for _, key := range keys {
-		if key.Column == column {
-			return &key
-		}
-	}
-	return nil
-}
-
-func generateDDLsForPrimryKey(from, to spansql.CreateTable) []string {
-	ddls := []string{}
-	for _, toPK := range to.PrimaryKey {
-		fromPK := findPrimryKeyByColumn(from.PrimaryKey, toPK.Column)
-		if fromPK == nil || fromPK.Desc != toPK.Desc {
-			ddls = append(ddls, spansql.DropTable{Name: from.Name}.SQL())
-			ddls = append(ddls, to.SQL())
-			return ddls
-		}
-	}
-	for _, fromPK := range from.PrimaryKey {
-		toPK := findPrimryKeyByColumn(to.PrimaryKey, fromPK.Column)
-		if toPK == nil || fromPK.Desc != toPK.Desc {
-			ddls = append(ddls, spansql.DropTable{Name: from.Name}.SQL())
-			ddls = append(ddls, to.SQL())
-			return ddls
-		}
-	}
-	return ddls
-}
-
-func findColumnByName(cols []spansql.ColumnDef, name string) (col spansql.ColumnDef) {
-	for _, c := range cols {
-		if c.Name == name {
-			col = c
+func findPrimryKeyByColumn(keys []spansql.KeyPart, column string) (key spansql.KeyPart, exists bool) {
+	for _, k := range keys {
+		if k.Column == column {
+			key = k
+			exists = true
 			break
 		}
 	}
 	return
 }
 
-func defaultValue(base spansql.TypeBase) string {
-	switch base {
-	case spansql.Bool:
-		return "false"
-	case spansql.Int64, spansql.Float64:
-		return "0"
-	case spansql.String, spansql.Bytes:
-		return "''"
-	case spansql.Date:
-		return "'0001-01-01'"
-	case spansql.Timestamp:
-		return "'0001-01-01 00:00:00'"
-	default:
-		return "''"
+func generateDDLsForPrimryKey(from, to spansql.CreateTable) []string {
+	ddls := []string{}
+	for _, toPK := range to.PrimaryKey {
+		fromPK, exists := findPrimryKeyByColumn(from.PrimaryKey, toPK.Column)
+		if !exists || fromPK.Desc != toPK.Desc {
+			ddls = append(ddls, spansql.DropTable{Name: from.Name}.SQL())
+			ddls = append(ddls, to.SQL())
+			return ddls
+		}
 	}
+	for _, fromPK := range from.PrimaryKey {
+		toPK, exists := findPrimryKeyByColumn(to.PrimaryKey, fromPK.Column)
+		if !exists || fromPK.Desc != toPK.Desc {
+			ddls = append(ddls, spansql.DropTable{Name: from.Name}.SQL())
+			ddls = append(ddls, to.SQL())
+			return ddls
+		}
+	}
+	return ddls
 }
 
-func changeableColumn(col spansql.ColumnDef) bool {
-	return (col.Type.Base == spansql.String || col.Type.Base == spansql.Bytes) && !col.Type.Array
+func findColumnByName(cols []spansql.ColumnDef, name string) (col spansql.ColumnDef, exists bool) {
+	for _, c := range cols {
+		if c.Name == name {
+			col = c
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func sameType(x, y spansql.ColumnDef) bool {
+	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
+}
+
+func allowNull(col spansql.ColumnDef) spansql.ColumnDef {
+	col.NotNull = false
+	return col
 }
 
 func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 	ddls := []string{}
 
 	for _, toCol := range to.Columns {
-		fromCol := findColumnByName(from.Columns, toCol.Name)
-		if fromCol == toCol {
-			continue
-		}
-		exists := fromCol.Name != ""
+		fromCol, exists := findColumnByName(from.Columns, toCol.Name)
 
-		if exists && !(changeableColumn(fromCol) && changeableColumn(toCol)) {
-			ddls = append(ddls, spansql.AlterTable{
-				Name:       from.Name,
-				Alteration: spansql.DropColumn{Name: fromCol.Name},
-			}.SQL())
+		if exists {
+			if fromCol == toCol {
+				continue
+			}
+
+			if sameType(fromCol, toCol) {
+				if !fromCol.NotNull && toCol.NotNull {
+					ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
+				}
+				ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+			} else {
+				ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}}.SQL())
+				if toCol.NotNull {
+					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
+					ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+				} else {
+					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
+				}
+			}
+		} else {
+			if toCol.NotNull {
+				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
+				ddls = append(ddls, UpdateColumn{TableName: to.Name, Def: toCol}.SQL())
+				ddls = append(ddls, AlterColumn{TableName: to.Name, Def: toCol}.SQL())
+			} else {
+				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
+			}
 		}
-		if toCol.NotNull && !(exists && fromCol.NotNull) {
-			allowNull := toCol
-			allowNull.NotNull = false
-			ddls = append(ddls, spansql.AlterTable{
-				Name:       to.Name,
-				Alteration: spansql.AddColumn{Def: allowNull},
-			}.SQL())
-			ddls = append(ddls, fmt.Sprintf("UPDATE %s SET %s = %s", toCol.Name, toCol.Name, defaultValue(toCol.Type.Base)))
-		}
-		ddls = append(ddls, spansql.AlterTable{
-			Name:       to.Name,
-			Alteration: spansql.AddColumn{Def: toCol},
-		}.SQL())
 	}
 
 	for _, fromCol := range from.Columns {
-		toCol := findColumnByName(to.Columns, fromCol.Name)
-		if fromCol == toCol {
-			continue
-		}
-		exists := toCol.Name != ""
-
-		if !exists {
+		if _, exists := findColumnByName(to.Columns, fromCol.Name); !exists {
 			ddls = append(ddls, spansql.AlterTable{
 				Name:       from.Name,
 				Alteration: spansql.DropColumn{Name: fromCol.Name},
@@ -200,10 +193,11 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 	return ddls
 }
 
-func findTableByName(tables []spansql.CreateTable, name string) (table spansql.CreateTable) {
+func findTableByName(tables []spansql.CreateTable, name string) (table spansql.CreateTable, exists bool) {
 	for _, t := range tables {
 		if t.Name == name {
 			table = t
+			exists = true
 			break
 		}
 	}
@@ -213,11 +207,12 @@ func findTableByName(tables []spansql.CreateTable, name string) (table spansql.C
 func generateDDLs(from, to *Database) {
 	ddls := []string{}
 	for _, toTable := range to.Tables {
-		fromTable := findTableByName(from.Tables, toTable.Name)
-		if fromTable.Name == "" {
+		fromTable, exists := findTableByName(from.Tables, toTable.Name)
+		if !exists {
 			ddls = append(ddls, toTable.SQL())
 			continue
 		}
+
 		if pkddls := generateDDLsForPrimryKey(fromTable, toTable); len(pkddls) > 0 {
 			ddls = append(ddls, pkddls...)
 		} else {
