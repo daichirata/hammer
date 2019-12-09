@@ -1,19 +1,27 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
 	"reflect"
 
 	"cloud.google.com/go/spanner/spansql"
 )
 
 func main() {
-	schema1, err := ioutil.ReadFile("./tmp/schema1.sql")
+	source, err := NewSpannerSource(context.Background(), "projects/c-154-pjz-tipstar-dev/instances/tipstar-dev/databases/tipstar_hirata_development")
 	if err != nil {
 		panic(err)
 	}
-	schema2, err := ioutil.ReadFile("./tmp/schema2.sql")
+	schema1, err := source.Read()
+	if err != nil {
+		panic(err)
+	}
+	// schema1, err := NewFileSource("./tmp/schema1.sql").Read()
+	// if err != nil {
+	// 	panic(err)
+	// }
+	schema2, err := NewFileSource("./tmp/schema2.sql").Read()
 	if err != nil {
 		panic(err)
 	}
