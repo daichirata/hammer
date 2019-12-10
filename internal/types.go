@@ -1,10 +1,14 @@
-package main
+package internal
 
 import (
 	"fmt"
 
 	"cloud.google.com/go/spanner/spansql"
 )
+
+type DDL interface {
+	SQL() string
+}
 
 type AlterColumn struct {
 	Table string

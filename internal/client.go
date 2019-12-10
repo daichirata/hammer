@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -54,7 +54,7 @@ func (c *Client) GetDatabaseDDL(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(response.Statements, ";"), nil
+	return strings.Join(response.Statements, ";\n"), nil
 }
 
 func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddls []DDL) error {
@@ -72,6 +72,11 @@ func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddls []DDL) error {
 			if err := c.update(ctx, ddl.SQL()); err != nil {
 				return err
 			}
+		}
+	}
+	if len(stmts) > 0 {
+		if err := c.updateDatabaseDDL(ctx, stmts); err != nil {
+			return err
 		}
 	}
 	return nil

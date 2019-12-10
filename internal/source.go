@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/url"
-	"strings"
 )
 
 type Source interface {
@@ -14,11 +13,7 @@ type Source interface {
 }
 
 func NewSource(uri string) (Source, error) {
-	u, err := url.Parse(uri)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse uri: %w", err)
-	}
-	switch strings.ToLower(u.Scheme) {
+	switch Scheme(uri) {
 	case "spanner":
 		return NewSpannerSource(uri)
 	case "file", "":
@@ -41,6 +36,10 @@ func NewSpannerSource(uri string) (*SpannerSource, error) {
 
 func (s *SpannerSource) Read() (string, error) {
 	return s.client.GetDatabaseDDL(context.Background())
+}
+
+func (s *SpannerSource) Apply(ddls []DDL) error {
+	return s.client.ApplyDatabaseDDL(context.Background(), ddls)
 }
 
 type FileSource struct {
