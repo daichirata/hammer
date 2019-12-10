@@ -15,12 +15,12 @@ func (a AlterColumn) SQL() string {
 	return "ALTER TABLE " + a.Table + " ALTER COLUMN " + a.Def.SQL()
 }
 
-type UpdateColumn struct {
+type Update struct {
 	Table string
 	Def   spansql.ColumnDef
 }
 
-func (u UpdateColumn) defaultValue() string {
+func (u Update) defaultValue() string {
 	switch u.Def.Type.Base {
 	case spansql.Bool:
 		return "false"
@@ -37,6 +37,6 @@ func (u UpdateColumn) defaultValue() string {
 	}
 }
 
-func (u UpdateColumn) SQL() string {
+func (u Update) SQL() string {
 	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table, u.Def.Name, u.defaultValue(), u.Def.Name)
 }

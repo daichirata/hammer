@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 
@@ -9,7 +8,7 @@ import (
 )
 
 func main() {
-	source, err := NewSpannerSource(context.Background(), "projects/c-154-pjz-tipstar-dev/instances/tipstar-dev/databases/tipstar_hirata_development")
+	source, err := NewSource("spanner://projects/c-154-pjz-tipstar-dev/instances/tipstar-dev/databases/tipstar_hirata_development?credentials=./tmp/secret.json")
 	if err != nil {
 		panic(err)
 	}
@@ -21,11 +20,15 @@ func main() {
 	// if err != nil {
 	// 	panic(err)
 	// }
-	schema2, err := NewFileSource("./tmp/schema2.sql").Read()
+	source, err = NewSource("./tmp/schema2.sql")
 	if err != nil {
 		panic(err)
 	}
-	ddl1, err := spansql.ParseDDL(string(schema1))
+	schema2, err := source.Read()
+	if err != nil {
+		panic(err)
+	}
+	ddl1, err := spansql.ParseDDL(schema1)
 	if err != nil {
 		panic(err)
 	}
@@ -34,7 +37,7 @@ func main() {
 		panic(err)
 	}
 
-	ddl2, err := spansql.ParseDDL(string(schema2))
+	ddl2, err := spansql.ParseDDL(schema2)
 	if err != nil {
 		panic(err)
 	}
@@ -48,6 +51,10 @@ func main() {
 type Database struct {
 	Tables  []spansql.CreateTable
 	Indexes map[string][]spansql.CreateIndex
+}
+
+type DDL interface {
+	SQL() string
 }
 
 func NewDatabase(ddl spansql.DDL) (*Database, error) {
@@ -133,14 +140,14 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 
 			if typeEqual(fromCol, toCol) {
 				if !fromCol.NotNull && toCol.NotNull {
-					ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, Update{Table: to.Name, Def: toCol}.SQL())
 				}
 				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 			} else {
 				ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}}.SQL())
 				if toCol.NotNull {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
-					ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
+					ddls = append(ddls, Update{Table: to.Name, Def: toCol}.SQL())
 					ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 				} else {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
@@ -149,7 +156,7 @@ func generateDDLsForColumns(from, to spansql.CreateTable) []string {
 		} else {
 			if toCol.NotNull {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}}.SQL())
-				ddls = append(ddls, UpdateColumn{Table: to.Name, Def: toCol}.SQL())
+				ddls = append(ddls, Update{Table: to.Name, Def: toCol}.SQL())
 				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol}.SQL())
 			} else {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}}.SQL())
