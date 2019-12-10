@@ -10,7 +10,7 @@ import (
 var (
 	diffCmd = &cobra.Command{
 		Use:   "diff SOURCE1 SOURCE2",
-		Short: "Export schema",
+		Short: "Diff schema",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 2 {
 				return fmt.Errorf("must specify 2 arguments")
