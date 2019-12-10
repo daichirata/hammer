@@ -108,7 +108,6 @@ func (g *Generator) GenerateDDLs() []DDL {
 			}
 		} else {
 			ddls = append(ddls, toTable)
-
 			for _, i := range toTable.indexes {
 				ddls = append(ddls, i)
 			}
@@ -194,7 +193,6 @@ func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 			}
 		}
 	}
-
 	for _, fromCol := range from.Columns {
 		if _, exists := findColumnByName(to.Columns, fromCol.Name); !exists {
 			ddls = append(ddls, spansql.AlterTable{
