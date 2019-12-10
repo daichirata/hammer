@@ -22,7 +22,7 @@ var (
 			sourceURI := args[1]
 
 			if internal.Scheme(databaseURI) != "spanner" {
-				return fmt.Errorf("")
+				return fmt.Errorf("DATABASE must be a spanner URI")
 			}
 			database, err := internal.NewSpannerSource(databaseURI)
 			if err != nil {
