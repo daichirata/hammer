@@ -26,10 +26,7 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 	if credentials := u.Query().Get("credentials"); credentials != "" {
 		options = append(options, option.WithCredentialsFile(credentials))
 	}
-	databaseName := strings.Replace(uri, "spanner://", "", 1)
-	if i := strings.Index(databaseName, "?"); i > 0 {
-		databaseName = databaseName[0:i]
-	}
+	databaseName := u.Host + u.Path
 
 	client, err := spanner.NewClient(ctx, databaseName, options...)
 	if err != nil {
