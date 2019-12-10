@@ -90,7 +90,6 @@ type Generator struct {
 
 func (g *Generator) GenerateDDLs() []DDL {
 	ddls := []DDL{}
-
 	for _, toTable := range g.to.tables {
 		fromTable, exists := findTableByName(g.from.tables, toTable.Name)
 
@@ -115,7 +114,6 @@ func (g *Generator) GenerateDDLs() []DDL {
 			}
 		}
 	}
-
 	for _, fromTable := range g.from.tables {
 		if _, exists := findTableByName(g.to.tables, fromTable.Name); !exists {
 			for _, i := range fromTable.indexes {
@@ -127,26 +125,8 @@ func (g *Generator) GenerateDDLs() []DDL {
 	return ddls
 }
 
-func (g *Generator) generateDDLsForDropIndex(from, to *Table) []DDL {
-	ddls := []DDL{}
-	for _, toIndex := range to.indexes {
-		fromIndex, exists := findIndexByName(from.indexes, toIndex.Name)
-
-		if exists && !reflect.DeepEqual(fromIndex, toIndex) {
-			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
-		}
-	}
-	for _, fromIndex := range from.indexes {
-		if _, exists := findIndexByName(to.indexes, fromIndex.Name); !exists {
-			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
-		}
-	}
-	return ddls
-}
-
 func (g *Generator) generateDDLsForRecreateTable(from, to *Table) []DDL {
 	ddls := []DDL{}
-
 	for _, i := range from.indexes {
 		ddls = append(ddls, spansql.DropIndex{Name: i.Name})
 	}
@@ -155,11 +135,9 @@ func (g *Generator) generateDDLsForRecreateTable(from, to *Table) []DDL {
 	for _, i := range to.indexes {
 		ddls = append(ddls, i)
 	}
-
 	for _, t := range from.children {
 		g.droped = append(g.droped, t)
 	}
-
 	return ddls
 }
 
@@ -183,7 +161,6 @@ func (g *Generator) generateDDLsForPrimryKey(from, to *Table) []DDL {
 
 func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 	ddls := []DDL{}
-
 	for _, toCol := range to.Columns {
 		fromCol, exists := findColumnByName(from.Columns, toCol.Name)
 
@@ -224,6 +201,23 @@ func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 				Name:       from.Name,
 				Alteration: spansql.DropColumn{Name: fromCol.Name},
 			})
+		}
+	}
+	return ddls
+}
+
+func (g *Generator) generateDDLsForDropIndex(from, to *Table) []DDL {
+	ddls := []DDL{}
+	for _, toIndex := range to.indexes {
+		fromIndex, exists := findIndexByName(from.indexes, toIndex.Name)
+
+		if exists && !reflect.DeepEqual(fromIndex, toIndex) {
+			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
+		}
+	}
+	for _, fromIndex := range from.indexes {
+		if _, exists := findIndexByName(to.indexes, fromIndex.Name); !exists {
+			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
 		}
 	}
 	return ddls
