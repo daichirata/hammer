@@ -48,11 +48,14 @@ type Table struct {
 }
 
 func NewDatabase(ddl spansql.DDL) (*Database, error) {
+	tables := []*Table{}
 	tmap := map[string]*Table{}
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
 		case spansql.CreateTable:
-			tmap[stmt.Name] = &Table{CreateTable: stmt}
+			table := &Table{CreateTable: stmt}
+			tmap[stmt.Name] = table
+			tables = append(tables, table)
 			break
 		case spansql.CreateIndex:
 			if t, ok := tmap[stmt.Table]; ok {
@@ -65,8 +68,6 @@ func NewDatabase(ddl spansql.DDL) (*Database, error) {
 			return nil, fmt.Errorf("unexpected ddl type: %v", stmt)
 		}
 	}
-
-	tables := []*Table{}
 	for _, t := range tmap {
 		if i := t.Interleave; i != nil {
 			if p, ok := tmap[i.Parent]; ok {
@@ -75,7 +76,6 @@ func NewDatabase(ddl spansql.DDL) (*Database, error) {
 				return nil, fmt.Errorf("parent ddl %s not found", i.Parent)
 			}
 		}
-		tables = append(tables, t)
 	}
 	return &Database{tables: tables}, nil
 }
@@ -112,7 +112,7 @@ func (g *Generator) GenerateDDLs() []DDL {
 			continue
 		}
 
-		if !reflect.DeepEqual(fromTable.PrimaryKey, toTable.PrimaryKey) {
+		if !g.primaryKeyDeepEqual(fromTable, toTable) {
 			ddls = append(ddls, g.generateDDLsForDropIndexAndTable(fromTable)...)
 			ddls = append(ddls, g.generateDDLsForCreateTableAndIndex(toTable)...)
 			continue
@@ -153,6 +153,26 @@ func (g *Generator) generateDDLsForCreateTableAndIndex(table *Table) []DDL {
 		ddls = append(ddls, i)
 	}
 	return ddls
+}
+
+func (g *Generator) primaryKeyDeepEqual(from, to *Table) bool {
+	if !reflect.DeepEqual(from.PrimaryKey, to.PrimaryKey) {
+		return false
+	}
+	for _, pk := range to.PrimaryKey {
+		fromCol, exists := findColumnByName(from.Columns, pk.Column)
+		if !exists {
+			return false
+		}
+		toCol, exists := findColumnByName(to.Columns, pk.Column)
+		if !exists {
+			return false
+		}
+		if !reflect.DeepEqual(fromCol, toCol) {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
