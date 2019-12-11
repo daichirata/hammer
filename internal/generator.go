@@ -31,7 +31,7 @@ func parseDDL(source Source) (*Database, error) {
 	}
 	ddl, err := spansql.ParseDDL(schema)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s failed to parse ddl: %w", source, err)
 	}
 	return NewDatabase(ddl)
 }

@@ -9,6 +9,7 @@ import (
 )
 
 type Source interface {
+	String() string
 	Read() (string, error)
 }
 
@@ -23,6 +24,7 @@ func NewSource(uri string) (Source, error) {
 }
 
 type SpannerSource struct {
+	uri    string
 	client *Client
 }
 
@@ -31,7 +33,11 @@ func NewSpannerSource(uri string) (*SpannerSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SpannerSource{client: client}, nil
+	return &SpannerSource{uri: uri, client: client}, nil
+}
+
+func (s *SpannerSource) String() string {
+	return s.uri
 }
 
 func (s *SpannerSource) Read() (string, error) {
@@ -43,6 +49,7 @@ func (s *SpannerSource) Apply(ddls []DDL) error {
 }
 
 type FileSource struct {
+	uri  string
 	path string
 }
 
@@ -51,7 +58,11 @@ func NewFileSource(uri string) (*FileSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse uri: %w", err)
 	}
-	return &FileSource{path: u.Path}, nil
+	return &FileSource{uri: uri, path: u.Path}, nil
+}
+
+func (s *FileSource) String() string {
+	return s.uri
 }
 
 func (s *FileSource) Read() (string, error) {
