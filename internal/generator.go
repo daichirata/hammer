@@ -85,7 +85,8 @@ type Generator struct {
 	from *Database
 	to   *Database
 
-	droped []string
+	dropedTable []string
+	dropedIndex []string
 }
 
 func (g *Generator) GenerateDDLs() []DDL {
@@ -135,7 +136,7 @@ func (g *Generator) generateDDLsForRecreateTable(from, to *Table) []DDL {
 		ddls = append(ddls, i)
 	}
 	for _, t := range from.children {
-		g.droped = append(g.droped, t)
+		g.dropedTable = append(g.dropedTable, t)
 	}
 	return ddls
 }
@@ -174,6 +175,15 @@ func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 				}
 				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
 			} else {
+				recreateIndexes := []spansql.CreateIndex{}
+				for _, i := range findIndexByColumn(from.indexes, fromCol.Name) {
+					if !g.isDropedIndex(i.Name) {
+						recreateIndexes = append(recreateIndexes, i)
+					}
+				}
+				for _, i := range recreateIndexes {
+					ddls = append(ddls, spansql.DropIndex{Name: i.Name})
+				}
 				ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}})
 				if toCol.NotNull {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}})
@@ -181,6 +191,9 @@ func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 					ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
 				} else {
 					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+				}
+				for _, i := range recreateIndexes {
+					ddls = append(ddls, i)
 				}
 			}
 		} else {
@@ -211,11 +224,13 @@ func (g *Generator) generateDDLsForDropIndex(from, to *Table) []DDL {
 
 		if exists && !reflect.DeepEqual(fromIndex, toIndex) {
 			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
 		}
 	}
 	for _, fromIndex := range from.indexes {
 		if _, exists := findIndexByName(to.indexes, fromIndex.Name); !exists {
 			ddls = append(ddls, spansql.DropIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
 		}
 	}
 	return ddls
@@ -235,7 +250,16 @@ func (g *Generator) generateDDLsForCreateIndex(from, to *Table) []DDL {
 }
 
 func (g *Generator) isParentDropedTable(name string) bool {
-	for _, t := range g.droped {
+	for _, t := range g.dropedTable {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) isDropedIndex(name string) bool {
+	for _, t := range g.dropedIndex {
 		if t == name {
 			return true
 		}
@@ -294,4 +318,17 @@ func findIndexByName(indexes []spansql.CreateIndex, name string) (index spansql.
 		}
 	}
 	return
+}
+
+func findIndexByColumn(indexes []spansql.CreateIndex, column string) []spansql.CreateIndex {
+	result := []spansql.CreateIndex{}
+	for _, i := range indexes {
+		for _, c := range i.Columns {
+			if c.Column == column {
+				result = append(result, i)
+				break
+			}
+		}
+	}
+	return result
 }
