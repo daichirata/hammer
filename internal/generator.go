@@ -44,39 +44,38 @@ type Table struct {
 	spansql.CreateTable
 
 	indexes  []spansql.CreateIndex
-	children []string
+	children []*Table
 }
 
 func NewDatabase(ddl spansql.DDL) (*Database, error) {
-	tables := []*Table{}
-	table := map[string]*Table{}
+	tmap := map[string]*Table{}
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
 		case spansql.CreateTable:
-			if t, ok := table[stmt.Name]; ok {
-				table[stmt.Name] = &Table{CreateTable: stmt, indexes: t.indexes}
-			} else {
-				table[stmt.Name] = &Table{CreateTable: stmt}
-			}
-			if i := stmt.Interleave; i != nil {
-				if t, ok := table[i.Parent]; ok {
-					t.children = append(t.children, stmt.Name)
-				} else {
-					table[i.Parent] = &Table{children: []string{stmt.Name}}
-				}
-			}
-			tables = append(tables, table[stmt.Name])
+			tmap[stmt.Name] = &Table{CreateTable: stmt}
 			break
 		case spansql.CreateIndex:
-			if t, ok := table[stmt.Table]; ok {
+			if t, ok := tmap[stmt.Table]; ok {
 				t.indexes = append(t.indexes, stmt)
 			} else {
-				table[stmt.Table] = &Table{indexes: []spansql.CreateIndex{stmt}}
+				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
 			}
 			break
 		default:
 			return nil, fmt.Errorf("unexpected ddl type: %v", stmt)
 		}
+	}
+
+	tables := []*Table{}
+	for _, t := range tmap {
+		if i := t.Interleave; i != nil {
+			if p, ok := tmap[i.Parent]; ok {
+				p.children = append(p.children, t)
+			} else {
+				return nil, fmt.Errorf("parent ddl %s not found", i.Parent)
+			}
+		}
+		tables = append(tables, t)
 	}
 	return &Database{tables: tables}, nil
 }
@@ -94,69 +93,66 @@ func (g *Generator) GenerateDDLs() []DDL {
 	for _, toTable := range g.to.tables {
 		fromTable, exists := findTableByName(g.from.tables, toTable.Name)
 
-		if exists {
-			if g.isParentDropedTable(toTable.Name) || !reflect.DeepEqual(fromTable.Interleave, toTable.Interleave) {
-				ddls = append(ddls, g.generateDDLsForRecreateTable(fromTable, toTable)...)
-				continue
-			}
-
-			if pkddls := g.generateDDLsForPrimryKey(fromTable, toTable); len(pkddls) > 0 {
-				ddls = append(ddls, pkddls...)
-			} else {
-				ddls = append(ddls, g.generateDDLsForDropIndex(fromTable, toTable)...)
-				ddls = append(ddls, g.generateDDLsForColumns(fromTable, toTable)...)
-				ddls = append(ddls, g.generateDDLsForCreateIndex(fromTable, toTable)...)
-			}
-		} else {
+		if !exists {
 			ddls = append(ddls, toTable)
 			for _, i := range toTable.indexes {
 				ddls = append(ddls, i)
 			}
+			continue
 		}
+
+		if g.isDropedTable(toTable.Name) {
+			ddls = append(ddls, g.generateDDLsForCreateTableAndIndex(toTable)...)
+			continue
+		}
+
+		if !reflect.DeepEqual(fromTable.Interleave, toTable.Interleave) {
+			ddls = append(ddls, g.generateDDLsForDropIndexAndTable(fromTable)...)
+			ddls = append(ddls, g.generateDDLsForCreateTableAndIndex(toTable)...)
+			continue
+		}
+
+		if !reflect.DeepEqual(fromTable.PrimaryKey, toTable.PrimaryKey) {
+			ddls = append(ddls, g.generateDDLsForDropIndexAndTable(fromTable)...)
+			ddls = append(ddls, g.generateDDLsForCreateTableAndIndex(toTable)...)
+			continue
+		}
+
+		ddls = append(ddls, g.generateDDLsForDropIndex(fromTable, toTable)...)
+		ddls = append(ddls, g.generateDDLsForColumns(fromTable, toTable)...)
+		ddls = append(ddls, g.generateDDLsForCreateIndex(fromTable, toTable)...)
 	}
 	for _, fromTable := range g.from.tables {
 		if _, exists := findTableByName(g.to.tables, fromTable.Name); !exists {
-			for _, i := range fromTable.indexes {
-				ddls = append(ddls, spansql.DropIndex{Name: i.Name})
-			}
-			ddls = append(ddls, spansql.DropTable{Name: fromTable.Name})
+			ddls = append(ddls, g.generateDDLsForDropIndexAndTable(fromTable)...)
 		}
 	}
 	return ddls
 }
 
-func (g *Generator) generateDDLsForRecreateTable(from, to *Table) []DDL {
+func (g *Generator) generateDDLsForDropIndexAndTable(table *Table) []DDL {
 	ddls := []DDL{}
-	for _, i := range from.indexes {
+	if g.isDropedTable(table.Name) {
+		return ddls
+	}
+	for _, t := range table.children {
+		ddls = append(ddls, g.generateDDLsForDropIndexAndTable(t)...)
+	}
+	for _, i := range table.indexes {
 		ddls = append(ddls, spansql.DropIndex{Name: i.Name})
 	}
-	ddls = append(ddls, spansql.DropTable{Name: from.Name})
-	ddls = append(ddls, to)
-	for _, i := range to.indexes {
-		ddls = append(ddls, i)
-	}
-	for _, t := range from.children {
-		g.dropedTable = append(g.dropedTable, t)
-	}
+	ddls = append(ddls, spansql.DropTable{Name: table.Name})
+	g.dropedTable = append(g.dropedTable, table.Name)
 	return ddls
 }
 
-func (g *Generator) generateDDLsForPrimryKey(from, to *Table) []DDL {
-	for _, toPK := range to.PrimaryKey {
-		fromPK, exists := findPrimryKeyByColumn(from.PrimaryKey, toPK.Column)
-
-		if !exists || fromPK.Desc != toPK.Desc {
-			return g.generateDDLsForRecreateTable(from, to)
-		}
+func (g *Generator) generateDDLsForCreateTableAndIndex(table *Table) []DDL {
+	ddls := []DDL{}
+	ddls = append(ddls, table)
+	for _, i := range table.indexes {
+		ddls = append(ddls, i)
 	}
-	for _, fromPK := range from.PrimaryKey {
-		toPK, exists := findPrimryKeyByColumn(to.PrimaryKey, fromPK.Column)
-
-		if !exists || fromPK.Desc != toPK.Desc {
-			return g.generateDDLsForRecreateTable(from, to)
-		}
-	}
-	return nil
+	return ddls
 }
 
 func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
@@ -164,45 +160,46 @@ func (g *Generator) generateDDLsForColumns(from, to *Table) []DDL {
 	for _, toCol := range to.Columns {
 		fromCol, exists := findColumnByName(from.Columns, toCol.Name)
 
-		if exists {
-			if reflect.DeepEqual(fromCol, toCol) {
-				continue
-			}
-
-			if typeEqual(fromCol, toCol) {
-				if !fromCol.NotNull && toCol.NotNull {
-					ddls = append(ddls, Update{Table: to.Name, Def: toCol})
-				}
-				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
-			} else {
-				recreateIndexes := []spansql.CreateIndex{}
-				for _, i := range findIndexByColumn(from.indexes, fromCol.Name) {
-					if !g.isDropedIndex(i.Name) {
-						recreateIndexes = append(recreateIndexes, i)
-					}
-				}
-				for _, i := range recreateIndexes {
-					ddls = append(ddls, spansql.DropIndex{Name: i.Name})
-				}
-				ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}})
-				if toCol.NotNull {
-					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}})
-					ddls = append(ddls, Update{Table: to.Name, Def: toCol})
-					ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
-				} else {
-					ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
-				}
-				for _, i := range recreateIndexes {
-					ddls = append(ddls, i)
-				}
-			}
-		} else {
+		if !exists {
 			if toCol.NotNull {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}})
 				ddls = append(ddls, Update{Table: to.Name, Def: toCol})
 				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
 			} else {
 				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+			}
+			continue
+		}
+
+		if reflect.DeepEqual(fromCol, toCol) {
+			continue
+		}
+
+		if typeEqual(fromCol, toCol) {
+			if !fromCol.NotNull && toCol.NotNull {
+				ddls = append(ddls, Update{Table: to.Name, Def: toCol})
+			}
+			ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
+		} else {
+			indexes := []spansql.CreateIndex{}
+			for _, i := range findIndexByColumn(from.indexes, fromCol.Name) {
+				if !g.isDropedIndex(i.Name) {
+					indexes = append(indexes, i)
+				}
+			}
+			for _, i := range indexes {
+				ddls = append(ddls, spansql.DropIndex{Name: i.Name})
+			}
+			ddls = append(ddls, spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}})
+			if toCol.NotNull {
+				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: allowNull(toCol)}})
+				ddls = append(ddls, Update{Table: to.Name, Def: toCol})
+				ddls = append(ddls, AlterColumn{Table: to.Name, Def: toCol})
+			} else {
+				ddls = append(ddls, spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+			}
+			for _, i := range indexes {
+				ddls = append(ddls, i)
 			}
 		}
 	}
@@ -249,7 +246,7 @@ func (g *Generator) generateDDLsForCreateIndex(from, to *Table) []DDL {
 	return ddls
 }
 
-func (g *Generator) isParentDropedTable(name string) bool {
+func (g *Generator) isDropedTable(name string) bool {
 	for _, t := range g.dropedTable {
 		if t == name {
 			return true
