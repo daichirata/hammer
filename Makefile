@@ -1,36 +1,24 @@
+VERSION  := 0.1.0
+BIN_NAME := hammer
+
 GOFLAGS := -tags netgo -installsuffix netgo -ldflags '-w -s --extldflags "-static"'
-GOVERSION=$(shell go version)
-GOOS=$(word 1,$(subst /, ,$(lastword $(GOVERSION))))
-GOARCH=$(word 2,$(subst /, ,$(lastword $(GOVERSION))))
-BUILD_DIR=build/$(GOOS)-$(GOARCH)
+GOFILES := $(shell find . -type f -name '*.go')
 
-.PHONY: all build clean deps package package-zip package-targz
+all: bin/$(BIN_NAME)
 
-all: build
+bin/$(BIN_NAME): $(GOFILES)
+	go build $(GOFLAGS) -o $@ .
 
-build: deps
-	mkdir -p $(BUILD_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(GOFLAGS) -o $(BUILD_DIR)/hammer
+build-cross:
+	GOOS=linux  GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BIN_NAME)_$(VERSION)_amd64_linux
+	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BIN_NAME)_$(VERSION)_amd64_darwin
 
 clean:
-	rm -rf build package
+	rm -rf bin dist
 
 deps:
 	go get -t ./...
 	go mod tidy
-
-package:
-	$(MAKE) package-targz GOOS=linux GOARCH=amd64
-	$(MAKE) package-targz GOOS=linux GOARCH=arm64
-	$(MAKE) package-zip GOOS=darwin GOARCH=amd64
-
-package-zip: build
-	mkdir -p package
-	cd $(BUILD_DIR) && zip ../../package/$(GOOS)_$(GOARCH).zip hammer
-
-package-targz: build
-	mkdir -p package
-	cd $(BUILD_DIR) && tar zcvf ../../package/$(GOOS)_$(GOARCH).tar.gz hammer
 
 test:
 	go test -race -v ./...
