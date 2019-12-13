@@ -25,6 +25,9 @@ type Update struct {
 }
 
 func (u Update) defaultValue() string {
+	if u.Def.Type.Array {
+		return "[]"
+	}
 	switch u.Def.Type.Base {
 	case spansql.Bool:
 		return "false"

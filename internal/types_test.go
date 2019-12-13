@@ -53,8 +53,16 @@ func TestUpdate_SQL(t *testing.T) {
 			s: "UPDATE test_table SET test_column = 0 WHERE test_column IS NULL",
 		},
 		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64, Array: true}},
+			s: "UPDATE test_table SET test_column = [] WHERE test_column IS NULL",
+		},
+		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String}},
 			s: "UPDATE test_table SET test_column = '' WHERE test_column IS NULL",
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Array: true}},
+			s: "UPDATE test_table SET test_column = [] WHERE test_column IS NULL",
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Date}},
