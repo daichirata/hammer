@@ -1,4 +1,4 @@
-VERSION  := 0.1.0
+VERSION  := 0.1.1
 BIN_NAME := hammer
 
 GOFLAGS := -tags netgo -installsuffix netgo -ldflags '-w -s --extldflags "-static"'
@@ -9,7 +9,7 @@ all: bin/$(BIN_NAME)
 bin/$(BIN_NAME): $(GOFILES)
 	go build $(GOFLAGS) -o $@ .
 
-build-cross:
+build-cross: clean
 	GOOS=linux  GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BIN_NAME)_$(VERSION)_amd64_linux
 	GOOS=darwin GOARCH=amd64 go build $(GOFLAGS) -o dist/$(BIN_NAME)_$(VERSION)_amd64_darwin
 
