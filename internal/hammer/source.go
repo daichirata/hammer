@@ -1,4 +1,4 @@
-package internal
+package hammer
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 type Source interface {
 	String() string
-	Read() (string, error)
+	DDL() (DDL, error)
 }
 
 func NewSource(uri string) (Source, error) {
@@ -40,12 +40,20 @@ func (s *SpannerSource) String() string {
 	return s.uri
 }
 
-func (s *SpannerSource) Read() (string, error) {
-	return s.client.GetDatabaseDDL(context.Background())
+func (s *SpannerSource) DDL() (DDL, error) {
+	schema, err := s.client.GetDatabaseDDL(context.Background())
+	if err != nil {
+		return DDL{}, err
+	}
+	return ParseDDL(s.uri, schema)
 }
 
-func (s *SpannerSource) Apply(ddls []DDL) error {
-	return s.client.ApplyDatabaseDDL(context.Background(), ddls)
+func (s *SpannerSource) Apply(ddl DDL) error {
+	return s.client.ApplyDatabaseDDL(context.Background(), ddl)
+}
+
+func (s *SpannerSource) Create(ddl DDL) error {
+	return s.client.CreateDatabase(context.Background(), ddl)
 }
 
 type FileSource struct {
@@ -65,10 +73,10 @@ func (s *FileSource) String() string {
 	return s.uri
 }
 
-func (s *FileSource) Read() (string, error) {
-	ddls, err := ioutil.ReadFile(s.path)
+func (s *FileSource) DDL() (DDL, error) {
+	schema, err := ioutil.ReadFile(s.path)
 	if err != nil {
-		return "", err
+		return DDL{}, err
 	}
-	return string(ddls), nil
+	return ParseDDL(s.uri, string(schema))
 }

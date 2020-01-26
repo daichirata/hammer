@@ -1,18 +1,19 @@
-package internal_test
+package hammer_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/daichirata/hammer/internal"
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 type StringSource string
 
-func (s StringSource) String() string        { return string(s) }
-func (s StringSource) Read() (string, error) { return string(s), nil }
+func (s StringSource) String() string           { return string(s) }
+func (s StringSource) DDL() (hammer.DDL, error) { return hammer.ParseDDL(s.String()) }
 
-func TestGenerateDDLs(t *testing.T) {
+func TestDiff(t *testing.T) {
 	values := []struct {
 		from     string
 		to       string
@@ -294,23 +295,25 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 			},
 		},
 	}
-	for _, v := range values {
-		ddls, err := internal.GenerateDDLs(StringSource(v.from), StringSource(v.to))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		actual := convertStrings(ddls)
+	for i, v := range values {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			ddl, err := hammer.Diff(StringSource(v.from), StringSource(v.to))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			actual := convertStrings(ddl)
 
-		if !reflect.DeepEqual(actual, v.expected) {
-			t.Fatalf("got: %v, want: %v", actual, v.expected)
-		}
+			if !reflect.DeepEqual(actual, v.expected) {
+				t.Fatalf("got: %v, want: %v", actual, v.expected)
+			}
+		})
 	}
 }
 
-func convertStrings(ddls []internal.DDL) []string {
-	ret := make([]string, len(ddls))
-	for i, d := range ddls {
-		ret[i] = d.SQL()
+func convertStrings(ddl hammer.DDL) []string {
+	ret := make([]string, len(ddl.List))
+	for i, stmt := range ddl.List {
+		ret[i] = stmt.SQL()
 	}
 	return ret
 }

@@ -3,8 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/daichirata/hammer/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 var (
@@ -21,23 +22,22 @@ var (
 			sourceURI1 := args[0]
 			sourceURI2 := args[1]
 
-			source1, err := internal.NewSource(sourceURI1)
+			source1, err := hammer.NewSource(sourceURI1)
 			if err != nil {
 				return err
 			}
-			source2, err := internal.NewSource(sourceURI2)
+			source2, err := hammer.NewSource(sourceURI2)
 			if err != nil {
 				return err
 			}
 
-			ddls, err := internal.GenerateDDLs(source1, source2)
+			ddl, err := hammer.Diff(source1, source2)
 			if err != nil {
 				return err
 			}
-			for _, ddl := range ddls {
-				fmt.Println(ddl.SQL())
+			for _, stmt := range ddl.List {
+				fmt.Println(stmt.SQL())
 			}
-
 			return nil
 		},
 	}

@@ -1,11 +1,11 @@
-package internal_test
+package hammer_test
 
 import (
 	"testing"
 
 	"cloud.google.com/go/spanner/spansql"
 
-	"github.com/daichirata/hammer/internal"
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 func TestAlterColumn_SQL(t *testing.T) {
@@ -31,7 +31,7 @@ func TestAlterColumn_SQL(t *testing.T) {
 		},
 	}
 	for _, v := range values {
-		actual := internal.AlterColumn{Table: "test_table", Def: v.d}.SQL()
+		actual := hammer.AlterColumn{Table: "test_table", Def: v.d}.SQL()
 
 		if actual != v.s {
 			t.Fatalf("got: %v, want: %v", actual, v.s)
@@ -74,7 +74,7 @@ func TestUpdate_SQL(t *testing.T) {
 		},
 	}
 	for _, v := range values {
-		actual := internal.Update{Table: "test_table", Def: v.d}.SQL()
+		actual := hammer.Update{Table: "test_table", Def: v.d}.SQL()
 
 		if actual != v.s {
 			t.Fatalf("got: %v, want: %v", actual, v.s)

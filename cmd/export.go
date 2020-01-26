@@ -3,13 +3,14 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/daichirata/hammer/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 var (
 	exportCmd = &cobra.Command{
-		Use:   "export DATABASE",
+		Use:   "export SOURCE",
 		Short: "Export schema",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
@@ -18,22 +19,19 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			databaseURI := args[0]
+			sourceURI := args[0]
 
-			if internal.Scheme(databaseURI) != "spanner" {
-				return fmt.Errorf("DATABASE must be a spanner URI")
-			}
-			database, err := internal.NewSource(databaseURI)
+			database, err := hammer.NewSource(sourceURI)
 			if err != nil {
 				return err
 			}
-
-			ddls, err := database.Read()
+			ddl, err := database.DDL()
 			if err != nil {
 				return err
 			}
-			fmt.Println(ddls)
-
+			for _, stmt := range ddl.List {
+				fmt.Println(stmt.SQL() + ";\n")
+			}
 			return nil
 		},
 	}

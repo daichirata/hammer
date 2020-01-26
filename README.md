@@ -24,6 +24,7 @@ Usage:
   hammer [command]
 
 Available Commands:
+  create      Create database and apply schema
   diff        Diff schema
   export      Export schema
   help        Help about any command
@@ -39,7 +40,13 @@ Examples:
   hammer export spanner://projects/projectId/instances/instanceId/databases/databaseName > schema.sql
 
 * Apply local schema file
-  hammer spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file.sql
+  hammer spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
+
+* Create database and apply local schema (faster than running database creation and schema apply separately)
+  hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
+
+* Copy database
+  hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName1 spanner://projects/projectId/instances/instanceId/databases/databaseName2
 
 * Compare local files
   hammer diff /path/to/file /another/path/to/file
