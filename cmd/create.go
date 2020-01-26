@@ -28,6 +28,7 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			databaseURI := args[0]
+			sourceURI := args[1]
 
 			if hammer.Scheme(databaseURI) != "spanner" {
 				return fmt.Errorf("DATABASE must be a spanner URI")
@@ -36,7 +37,12 @@ var (
 			if err != nil {
 				return err
 			}
-			ddl, err := database.DDL()
+			source, err := hammer.NewSource(sourceURI)
+			if err != nil {
+				return err
+			}
+
+			ddl, err := source.DDL()
 			if err != nil {
 				return err
 			}
