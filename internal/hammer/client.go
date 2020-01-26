@@ -85,7 +85,7 @@ func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddl DDL) error {
 				}
 				stmts = stmts[:0]
 			}
-			if err := c.update(ctx, stmt.SQL()); err != nil {
+			if err := c.partitionedUpdate(ctx, stmt.SQL()); err != nil {
 				return err
 			}
 		}
@@ -109,13 +109,8 @@ func (c *Client) updateDatabaseDDL(ctx context.Context, stmts []string) error {
 	return op.Wait(ctx)
 }
 
-func (c *Client) update(ctx context.Context, stmt string) error {
-	_, err := c.client.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-		_, err := tx.Update(ctx, spanner.Statement{
-			SQL: stmt,
-		})
-		return err
-	})
+func (c *Client) partitionedUpdate(ctx context.Context, stmt string) error {
+	_, err := c.client.PartitionedUpdate(ctx, spanner.Statement{SQL: stmt})
 	return err
 }
 
