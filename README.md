@@ -17,22 +17,11 @@ $ go get -u github.com/daichirata/hammer
 ## Useage
 
 ```
+$ hammer -h
 hammer is a command-line tool to schema management for Google Cloud Spanner.
 
 Usage:
-  hammer DATABASE SOURCE [flags]
   hammer [command]
-
-Available Commands:
-  create      Create database and apply schema
-  diff        Diff schema
-  export      Export schema
-  help        Help about any command
-
-Flags:
-  -h, --help   help for hammer
-
-Use "hammer [command] --help" for more information about a command.
 
 Examples:
 
@@ -40,7 +29,7 @@ Examples:
   hammer export spanner://projects/projectId/instances/instanceId/databases/databaseName > schema.sql
 
 * Apply local schema file
-  hammer spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
+  hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
 
 * Create database and apply local schema (faster than running database creation and schema apply separately)
   hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
@@ -56,6 +45,18 @@ Examples:
 
 * Compare spanner schema against spanner schema
   hammer diff spanner://projects/projectId/instances/instanceId/databases/databaseName1 spanner://projects/projectId/instances/instanceId/databases/databaseName2
+
+Available Commands:
+  apply       Apply schema
+  create      Create database and apply schema
+  diff        Diff schema
+  export      Export schema
+  help        Help about any command
+
+Flags:
+  -h, --help   help for hammer
+
+Use "hammer [command] --help" for more information about a command.
 ```
 
 The DSN must be given in the following format.
@@ -64,12 +65,12 @@ The DSN must be given in the following format.
 spanner://projects/{projectId}/instances/{instanceId}/databases/{databaseName}?credentials=/path/to/file.json
 ```
 
-| Param          |  Description                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------------- |
-| `credentials`  | The path to the keyfile. If not present, client will use your default application credentials. |
-| `projectId`    | The Google Cloud Platform project id                                                           |
-| `instanceId`   | The id of the instance running Spanner                                                         |
-| `databaseName` | The name of the Spanner database                                                               |
+| Param          | Required |  Description                                                                                   |
+| -------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `projectId`    | true     | The Google Cloud Platform project id                                                           |
+| `instanceId`   | true     | The id of the instance running Spanner                                                         |
+| `databaseName` | true     | The name of the Spanner database                                                               |
+| `credentials`  | false    | The path to the keyfile. If not present, client will use your default application credentials. |
 
 ### Examples
 

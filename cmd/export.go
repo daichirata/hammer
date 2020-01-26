@@ -9,9 +9,14 @@ import (
 )
 
 var (
+	exportExample = `
+* Export spanner schema
+  hammer export spanner://projects/projectId/instances/instanceId/databases/databaseName > schema.sql`
+
 	exportCmd = &cobra.Command{
-		Use:   "export SOURCE",
-		Short: "Export schema",
+		Use:     "export SOURCE",
+		Short:   "Export schema",
+		Example: exportExample,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("must specify 1 argument")
