@@ -1,4 +1,4 @@
-package internal
+package hammer
 
 import (
 	"fmt"
@@ -6,8 +6,32 @@ import (
 	"cloud.google.com/go/spanner/spansql"
 )
 
-type DDL interface {
+type Statement interface {
 	SQL() string
+}
+
+type DDL struct {
+	List []Statement
+}
+
+func (d *DDL) Append(stmts ...Statement) {
+	d.List = append(d.List, stmts...)
+}
+
+func (d *DDL) AppendDDL(ddl DDL) {
+	d.Append(ddl.List...)
+}
+
+func ParseDDL(schema string) (DDL, error) {
+	ddl, err := spansql.ParseDDL(schema)
+	if err != nil {
+		return DDL{}, fmt.Errorf("%s failed to parse ddl: %w", "", err) //TODO
+	}
+	list := make([]Statement, len(ddl.List))
+	for i, stmt := range ddl.List {
+		list[i] = stmt
+	}
+	return DDL{List: list}, nil
 }
 
 type AlterColumn struct {

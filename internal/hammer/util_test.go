@@ -1,9 +1,9 @@
-package internal_test
+package hammer_test
 
 import (
 	"testing"
 
-	"github.com/daichirata/hammer/internal"
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 func TestScheme(t *testing.T) {
@@ -29,7 +29,7 @@ func TestScheme(t *testing.T) {
 		},
 	}
 	for _, v := range values {
-		actual := internal.Scheme(v.u)
+		actual := hammer.Scheme(v.u)
 
 		if actual != v.s {
 			t.Errorf("got: %v, want: %v", actual, v.s)

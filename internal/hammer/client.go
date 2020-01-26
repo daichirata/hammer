@@ -1,4 +1,4 @@
-package internal
+package hammer
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 )
 
 type Client struct {
-	databaseName string
-	client       *spanner.Client
-	admin        *database.DatabaseAdminClient
+	database string
+	client   *spanner.Client
+	admin    *database.DatabaseAdminClient
 }
 
 func NewClient(ctx context.Context, uri string) (*Client, error) {
@@ -22,31 +22,31 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := []option.ClientOption{}
-	if credentials := u.Query().Get("credentials"); credentials != "" {
-		options = append(options, option.WithCredentialsFile(credentials))
-	}
-	databaseName := u.Host + u.Path
+	db := u.Host + u.Path
 
-	client, err := spanner.NewClient(ctx, databaseName, options...)
+	opts := []option.ClientOption{}
+	if credentials := u.Query().Get("credentials"); credentials != "" {
+		opts = append(opts, option.WithCredentialsFile(credentials))
+	}
+	client, err := spanner.NewClient(ctx, db, opts...)
 	if err != nil {
 		return nil, err
 	}
-	admin, err := database.NewDatabaseAdminClient(ctx, options...)
+	admin, err := database.NewDatabaseAdminClient(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Client{
-		databaseName: databaseName,
-		client:       client,
-		admin:        admin,
+		database: db,
+		client:   client,
+		admin:    admin,
 	}, nil
 }
 
 func (c *Client) GetDatabaseDDL(ctx context.Context) (string, error) {
 	response, err := c.admin.GetDatabaseDdl(ctx, &databasepb.GetDatabaseDdlRequest{
-		Database: c.databaseName,
+		Database: c.database,
 	})
 	if err != nil {
 		return "", err
@@ -54,11 +54,11 @@ func (c *Client) GetDatabaseDDL(ctx context.Context) (string, error) {
 	return strings.Join(response.Statements, ";\n"), nil
 }
 
-func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddls []DDL) error {
+func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddl DDL) error {
 	stmts := []string{}
-	for _, ddl := range ddls {
-		if c.isDatabaseDDL(ddl) {
-			stmts = append(stmts, ddl.SQL())
+	for _, stmt := range ddl.List {
+		if c.isUpdateDatabaseStatement(stmt) {
+			stmts = append(stmts, stmt.SQL())
 		} else {
 			if len(stmts) > 0 {
 				if err := c.updateDatabaseDDL(ctx, stmts); err != nil {
@@ -66,7 +66,7 @@ func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddls []DDL) error {
 				}
 				stmts = stmts[:0]
 			}
-			if err := c.update(ctx, ddl.SQL()); err != nil {
+			if err := c.update(ctx, stmt.SQL()); err != nil {
 				return err
 			}
 		}
@@ -81,7 +81,7 @@ func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddls []DDL) error {
 
 func (c *Client) updateDatabaseDDL(ctx context.Context, stmts []string) error {
 	op, err := c.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   c.databaseName,
+		Database:   c.database,
 		Statements: stmts,
 	})
 	if err != nil {
@@ -100,8 +100,8 @@ func (c *Client) update(ctx context.Context, stmt string) error {
 	return err
 }
 
-func (c *Client) isDatabaseDDL(ddl DDL) bool {
-	switch ddl.(type) {
+func (c *Client) isUpdateDatabaseStatement(stmt Statement) bool {
+	switch stmt.(type) {
 	case Update:
 		return false
 	default:

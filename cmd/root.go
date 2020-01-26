@@ -3,8 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/daichirata/hammer/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/daichirata/hammer/internal/hammer"
 )
 
 var (
@@ -21,27 +22,27 @@ var (
 			databaseURI := args[0]
 			sourceURI := args[1]
 
-			if internal.Scheme(databaseURI) != "spanner" {
+			if hammer.Scheme(databaseURI) != "spanner" {
 				return fmt.Errorf("DATABASE must be a spanner URI")
 			}
-			database, err := internal.NewSpannerSource(databaseURI)
+			database, err := hammer.NewSpannerSource(databaseURI)
 			if err != nil {
 				return err
 			}
-			source, err := internal.NewSource(sourceURI)
+			source, err := hammer.NewSource(sourceURI)
 			if err != nil {
 				return err
 			}
 
-			ddls, err := internal.GenerateDDLs(database, source)
+			ddl, err := hammer.Diff(database, source)
 			if err != nil {
 				return err
 			}
-			if len(ddls) == 0 {
+			if len(ddl.List) == 0 {
 				return nil
 			}
 
-			if err := database.Apply(ddls); err != nil {
+			if err := database.Apply(ddl); err != nil {
 				return err
 			}
 			return nil
