@@ -4,7 +4,7 @@ BIN_NAME := hammer
 GOFLAGS := -tags netgo -installsuffix netgo -ldflags '-w -s --extldflags "-static"'
 GOFILES := $(shell find . -type f -name '*.go')
 
-all: bin/$(BIN_NAME)
+build: bin/$(BIN_NAME)
 
 bin/$(BIN_NAME): $(GOFILES)
 	go build $(GOFLAGS) -o $@ .
