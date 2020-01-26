@@ -22,10 +22,10 @@ func (d *DDL) AppendDDL(ddl DDL) {
 	d.Append(ddl.List...)
 }
 
-func ParseDDL(schema string) (DDL, error) {
+func ParseDDL(uri, schema string) (DDL, error) {
 	ddl, err := spansql.ParseDDL(schema)
 	if err != nil {
-		return DDL{}, fmt.Errorf("%s failed to parse ddl: %w", "", err) //TODO
+		return DDL{}, fmt.Errorf("%s failed to parse ddl: %w", uri, err)
 	}
 	list := make([]Statement, len(ddl.List))
 	for i, stmt := range ddl.List {

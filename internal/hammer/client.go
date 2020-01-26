@@ -2,6 +2,7 @@ package hammer
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -54,8 +55,26 @@ func (c *Client) GetDatabaseDDL(ctx context.Context) (string, error) {
 	return strings.Join(response.Statements, ";\n"), nil
 }
 
+func (c *Client) CreateDatabase(ctx context.Context, ddl DDL) error {
+	parts := strings.Split(c.database, "/")
+	stmts := make([]string, len(ddl.List))
+	for i, stmt := range ddl.List {
+		stmts[i] = stmt.SQL()
+	}
+	op, err := c.admin.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+		Parent:          fmt.Sprintf("projects/%s/instances/%s", parts[1], parts[3]),
+		CreateStatement: fmt.Sprintf("CREATE DATABASE %s", parts[5]),
+		ExtraStatements: stmts,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = op.Wait(ctx)
+	return err
+}
+
 func (c *Client) ApplyDatabaseDDL(ctx context.Context, ddl DDL) error {
-	stmts := []string{}
+	var stmts []string
 	for _, stmt := range ddl.List {
 		if c.isUpdateDatabaseStatement(stmt) {
 			stmts = append(stmts, stmt.SQL())

@@ -45,11 +45,15 @@ func (s *SpannerSource) DDL() (DDL, error) {
 	if err != nil {
 		return DDL{}, err
 	}
-	return ParseDDL(schema)
+	return ParseDDL(s.uri, schema)
 }
 
 func (s *SpannerSource) Apply(ddl DDL) error {
 	return s.client.ApplyDatabaseDDL(context.Background(), ddl)
+}
+
+func (s *SpannerSource) Create(ddl DDL) error {
+	return s.client.CreateDatabase(context.Background(), ddl)
 }
 
 type FileSource struct {
@@ -74,5 +78,5 @@ func (s *FileSource) DDL() (DDL, error) {
 	if err != nil {
 		return DDL{}, err
 	}
-	return ParseDDL(string(schema))
+	return ParseDDL(s.uri, string(schema))
 }

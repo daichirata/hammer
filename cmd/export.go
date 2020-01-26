@@ -10,7 +10,7 @@ import (
 
 var (
 	exportCmd = &cobra.Command{
-		Use:   "export DATABASE",
+		Use:   "export SOURCE",
 		Short: "Export schema",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
@@ -19,16 +19,12 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			databaseURI := args[0]
+			sourceURI := args[0]
 
-			if hammer.Scheme(databaseURI) != "spanner" {
-				return fmt.Errorf("DATABASE must be a spanner URI")
-			}
-			database, err := hammer.NewSource(databaseURI)
+			database, err := hammer.NewSource(sourceURI)
 			if err != nil {
 				return err
 			}
-
 			ddl, err := database.DDL()
 			if err != nil {
 				return err
