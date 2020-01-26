@@ -7,16 +7,7 @@ import (
 	"cloud.google.com/go/spanner/spansql"
 )
 
-func Diff(source1, source2 Source) (DDL, error) {
-	ddl1, err := source1.DDL()
-	if err != nil {
-		return DDL{}, err
-	}
-	ddl2, err := source2.DDL()
-	if err != nil {
-		return DDL{}, err
-	}
-
+func Diff(ddl1, ddl2 DDL) (DDL, error) {
 	database1, err := NewDatabase(ddl1)
 	if err != nil {
 		return DDL{}, err

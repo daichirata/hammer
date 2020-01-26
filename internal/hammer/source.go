@@ -10,13 +10,13 @@ import (
 
 type Source interface {
 	String() string
-	DDL() (DDL, error)
+	DDL(context.Context) (DDL, error)
 }
 
-func NewSource(uri string) (Source, error) {
+func NewSource(ctx context.Context, uri string) (Source, error) {
 	switch Scheme(uri) {
 	case "spanner":
-		return NewSpannerSource(uri)
+		return NewSpannerSource(ctx, uri)
 	case "file", "":
 		return NewFileSource(uri)
 	}
@@ -28,7 +28,7 @@ type SpannerSource struct {
 	client *Client
 }
 
-func NewSpannerSource(uri string) (*SpannerSource, error) {
+func NewSpannerSource(ctx context.Context, uri string) (*SpannerSource, error) {
 	client, err := NewClient(context.Background(), uri)
 	if err != nil {
 		return nil, err
@@ -40,20 +40,20 @@ func (s *SpannerSource) String() string {
 	return s.uri
 }
 
-func (s *SpannerSource) DDL() (DDL, error) {
-	schema, err := s.client.GetDatabaseDDL(context.Background())
+func (s *SpannerSource) DDL(ctx context.Context) (DDL, error) {
+	schema, err := s.client.GetDatabaseDDL(ctx)
 	if err != nil {
 		return DDL{}, err
 	}
 	return ParseDDL(s.uri, schema)
 }
 
-func (s *SpannerSource) Apply(ddl DDL) error {
-	return s.client.ApplyDatabaseDDL(context.Background(), ddl)
+func (s *SpannerSource) Apply(ctx context.Context, ddl DDL) error {
+	return s.client.ApplyDatabaseDDL(ctx, ddl)
 }
 
-func (s *SpannerSource) Create(ddl DDL) error {
-	return s.client.CreateDatabase(context.Background(), ddl)
+func (s *SpannerSource) Create(ctx context.Context, ddl DDL) error {
+	return s.client.CreateDatabase(ctx, ddl)
 }
 
 type FileSource struct {
@@ -73,7 +73,7 @@ func (s *FileSource) String() string {
 	return s.uri
 }
 
-func (s *FileSource) DDL() (DDL, error) {
+func (s *FileSource) DDL(context.Context) (DDL, error) {
 	schema, err := ioutil.ReadFile(s.path)
 	if err != nil {
 		return DDL{}, err

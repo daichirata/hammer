@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -24,22 +25,33 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
 			databaseURI := args[0]
 			sourceURI := args[1]
 
 			if hammer.Scheme(databaseURI) != "spanner" {
 				return fmt.Errorf("DATABASE must be a spanner URI")
 			}
-			database, err := hammer.NewSpannerSource(databaseURI)
+			database, err := hammer.NewSpannerSource(ctx, databaseURI)
 			if err != nil {
 				return err
 			}
-			source, err := hammer.NewSource(sourceURI)
+			source, err := hammer.NewSource(ctx, sourceURI)
 			if err != nil {
 				return err
 			}
 
-			ddl, err := hammer.Diff(database, source)
+			databaseDDL, err := database.DDL(ctx)
+			if err != nil {
+				return err
+			}
+			sourceDDL, err := source.DDL(ctx)
+			if err != nil {
+				return err
+			}
+
+			ddl, err := hammer.Diff(databaseDDL, sourceDDL)
 			if err != nil {
 				return err
 			}
@@ -47,7 +59,7 @@ var (
 				return nil
 			}
 
-			if err := database.Apply(ddl); err != nil {
+			if err := database.Apply(ctx, ddl); err != nil {
 				return err
 			}
 			return nil

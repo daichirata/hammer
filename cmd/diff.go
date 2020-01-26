@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -30,19 +31,30 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
 			sourceURI1 := args[0]
 			sourceURI2 := args[1]
 
-			source1, err := hammer.NewSource(sourceURI1)
+			source1, err := hammer.NewSource(ctx, sourceURI1)
 			if err != nil {
 				return err
 			}
-			source2, err := hammer.NewSource(sourceURI2)
+			source2, err := hammer.NewSource(ctx, sourceURI2)
 			if err != nil {
 				return err
 			}
 
-			ddl, err := hammer.Diff(source1, source2)
+			ddl1, err := source1.DDL(ctx)
+			if err != nil {
+				return err
+			}
+			ddl2, err := source2.DDL(ctx)
+			if err != nil {
+				return err
+			}
+
+			ddl, err := hammer.Diff(ddl1, ddl2)
 			if err != nil {
 				return err
 			}

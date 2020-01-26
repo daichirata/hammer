@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -24,13 +25,15 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
 			sourceURI := args[0]
 
-			database, err := hammer.NewSource(sourceURI)
+			source, err := hammer.NewSource(ctx, sourceURI)
 			if err != nil {
 				return err
 			}
-			ddl, err := database.DDL()
+			ddl, err := source.DDL(ctx)
 			if err != nil {
 				return err
 			}

@@ -1,6 +1,7 @@
 package hammer_test
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -10,8 +11,10 @@ import (
 
 type StringSource string
 
-func (s StringSource) String() string           { return string(s) }
-func (s StringSource) DDL() (hammer.DDL, error) { return hammer.ParseDDL(s.String()) }
+func (s StringSource) String() string { return string(s) }
+func (s StringSource) DDL(context.Context) (hammer.DDL, error) {
+	return hammer.ParseDDL("string", s.String())
+}
 
 func TestDiff(t *testing.T) {
 	values := []struct {
@@ -297,7 +300,18 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 	}
 	for i, v := range values {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			ddl, err := hammer.Diff(StringSource(v.from), StringSource(v.to))
+			ctx := context.Background()
+
+			d1, err := StringSource(v.from).DDL(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			d2, err := StringSource(v.to).DDL(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			ddl, err := hammer.Diff(d1, d2)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
