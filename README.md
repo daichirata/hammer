@@ -1,6 +1,8 @@
-# hammer
+# hammer 
 
 hammer is a command-line tool to schema management for Google Cloud Spanner.
+
+![](https://github.com/daichirata/hammer/workflows/Test/badge.svg)
 
 ## Installation
 
