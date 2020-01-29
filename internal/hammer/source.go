@@ -64,7 +64,7 @@ type FileSource struct {
 func NewFileSource(uri string) (*FileSource, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse uri: %w", err)
+		return nil, fmt.Errorf("failed to parse uri: %s", err)
 	}
 	return &FileSource{uri: uri, path: u.Path}, nil
 }
