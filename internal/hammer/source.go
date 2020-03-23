@@ -29,7 +29,7 @@ type SpannerSource struct {
 }
 
 func NewSpannerSource(ctx context.Context, uri string) (*SpannerSource, error) {
-	client, err := NewClient(context.Background(), uri)
+	client, err := NewClient(ctx, uri)
 	if err != nil {
 		return nil, err
 	}
