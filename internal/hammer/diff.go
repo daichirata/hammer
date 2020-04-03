@@ -30,13 +30,13 @@ func NewDatabase(ddl DDL) (*Database, error) {
 	m := make(map[string]*Table)
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
-		case spansql.CreateTable:
-			t := &Table{CreateTable: stmt}
+		case *spansql.CreateTable:
+			t := &Table{CreateTable: *stmt}
 			tables = append(tables, t)
 			m[stmt.Name] = t
-		case spansql.CreateIndex:
+		case *spansql.CreateIndex:
 			if t, ok := m[stmt.Table]; ok {
-				t.indexes = append(t.indexes, stmt)
+				t.indexes = append(t.indexes, *stmt)
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
 			}

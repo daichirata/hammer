@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1"
 	"google.golang.org/api/option"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
+	"google.golang.org/grpc"
 )
 
 type Client struct {
@@ -29,6 +32,18 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 	if credentials := u.Query().Get("credentials"); credentials != "" {
 		opts = append(opts, option.WithCredentialsFile(credentials))
 	}
+
+	if host, ok := os.LookupEnv("SPANNER_EMULATOR_HOST"); ok {
+		dialCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+
+		conn, err := grpc.DialContext(dialCtx, host, grpc.WithInsecure())
+		if err != nil {
+			return nil, err
+		}
+		opts =  append(opts, option.WithGRPCConn(conn))
+	}
+
 	client, err := spanner.NewClient(ctx, db, opts...)
 	if err != nil {
 		return nil, err

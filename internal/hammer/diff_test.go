@@ -198,7 +198,9 @@ CREATE TABLE t1 (
 CREATE INDEX idx_t1_2 ON t1(t1_3);
 `,
 			expected: []string{
+				`DROP INDEX idx_t1_2`,
 				`DROP INDEX idx_t1_1`,
+				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
 		// change indexed column
@@ -222,11 +224,13 @@ CREATE INDEX idx_t1_1 ON t1(t1_2);
 CREATE INDEX idx_t1_2 ON t1(t1_3);
 `,
 			expected: []string{
+				`DROP INDEX idx_t1_1`,
 				`DROP INDEX idx_t1_2`,
 				`ALTER TABLE t1 DROP COLUMN t1_3`,
 				`ALTER TABLE t1 ADD COLUMN t1_3 INT64`,
 				`UPDATE t1 SET t1_3 = 0 WHERE t1_3 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_3 INT64 NOT NULL`,
+				`CREATE INDEX idx_t1_1 ON t1(t1_2)`,
 				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},

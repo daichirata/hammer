@@ -23,7 +23,7 @@ func (d *DDL) AppendDDL(ddl DDL) {
 }
 
 func ParseDDL(uri, schema string) (DDL, error) {
-	ddl, err := spansql.ParseDDL(schema)
+	ddl, err := spansql.ParseDDL("", schema)
 	if err != nil {
 		return DDL{}, fmt.Errorf("%s failed to parse ddl: %s", uri, err)
 	}
