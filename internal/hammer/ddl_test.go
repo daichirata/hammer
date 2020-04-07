@@ -62,7 +62,7 @@ func TestUpdate_SQL(t *testing.T) {
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Bytes}},
-			s: "UPDATE test_table SET test_column = CAST('' AS BYTES) WHERE test_column IS NULL",
+			s: "UPDATE test_table SET test_column = b'' WHERE test_column IS NULL",
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Array: true}},

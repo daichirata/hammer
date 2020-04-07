@@ -60,7 +60,7 @@ func (u Update) defaultValue() string {
 	case spansql.String:
 		return "''"
 	case spansql.Bytes:
-		return "CAST('' AS BYTES)"
+		return "b''"
 	case spansql.Date:
 		return "'0001-01-01'"
 	case spansql.Timestamp:
