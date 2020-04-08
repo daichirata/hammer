@@ -30,11 +30,11 @@ func NewDatabase(ddl DDL) (*Database, error) {
 	m := make(map[string]*Table)
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
-		case spansql.CreateTable:
+		case *spansql.CreateTable:
 			t := &Table{CreateTable: stmt}
 			tables = append(tables, t)
 			m[stmt.Name] = t
-		case spansql.CreateIndex:
+		case *spansql.CreateIndex:
 			if t, ok := m[stmt.Table]; ok {
 				t.indexes = append(t.indexes, stmt)
 			} else {
@@ -62,9 +62,9 @@ type Database struct {
 }
 
 type Table struct {
-	spansql.CreateTable
+	*spansql.CreateTable
 
-	indexes  []spansql.CreateIndex
+	indexes  []*spansql.CreateIndex
 	children []*Table
 }
 
@@ -190,7 +190,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			}
 			ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
 		} else {
-			indexes := []spansql.CreateIndex{}
+			indexes := []*spansql.CreateIndex{}
 			for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name) {
 				if !g.isDropedIndex(i.Name) {
 					indexes = append(indexes, i)
@@ -229,7 +229,7 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
 
-		if exists && !reflect.DeepEqual(fromIndex, toIndex) {
+		if exists && !g.isIndexEqual(fromIndex, toIndex) {
 			ddl.Append(spansql.DropIndex{Name: fromIndex.Name})
 			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
 		}
@@ -249,7 +249,7 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
 
-		if !exists || !reflect.DeepEqual(fromIndex, toIndex) {
+		if !exists || !g.isIndexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
 		}
 
@@ -279,6 +279,31 @@ func (g *Generator) typeEqual(x, y spansql.ColumnDef) bool {
 	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
 }
 
+func (g *Generator) isIndexEqual(x, y *spansql.CreateIndex) bool {
+	if !(x.Name == y.Name &&
+		x.Table == y.Table &&
+		x.Unique == y.Unique &&
+		x.NullFiltered == y.NullFiltered &&
+		x.Interleave == y.Interleave) {
+		return false
+	}
+	for _, a := range x.Columns {
+		for _, b := range y.Columns {
+			if a.SQL() != b.SQL() {
+				return false
+			}
+		}
+	}
+	for _, a := range x.Storing {
+		for _, b := range y.Storing {
+			if a != b {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (g *Generator) allowNull(col spansql.ColumnDef) spansql.ColumnDef {
 	col.NotNull = false
 	return col
@@ -306,7 +331,7 @@ func (g *Generator) findColumnByName(cols []spansql.ColumnDef, name string) (col
 	return
 }
 
-func (g *Generator) findIndexByName(indexes []spansql.CreateIndex, name string) (index spansql.CreateIndex, exists bool) {
+func (g *Generator) findIndexByName(indexes []*spansql.CreateIndex, name string) (index *spansql.CreateIndex, exists bool) {
 	for _, i := range indexes {
 		if i.Name == name {
 			index = i
@@ -317,8 +342,8 @@ func (g *Generator) findIndexByName(indexes []spansql.CreateIndex, name string) 
 	return
 }
 
-func (g *Generator) findIndexByColumn(indexes []spansql.CreateIndex, column string) []spansql.CreateIndex {
-	result := []spansql.CreateIndex{}
+func (g *Generator) findIndexByColumn(indexes []*spansql.CreateIndex, column string) []*spansql.CreateIndex {
+	result := []*spansql.CreateIndex{}
 	for _, i := range indexes {
 		for _, c := range i.Columns {
 			if c.Column == column {
