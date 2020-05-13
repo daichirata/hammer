@@ -11,30 +11,49 @@ import (
 func TestAlterColumn_SQL(t *testing.T) {
 	values := []struct {
 		d spansql.ColumnDef
-		s string
+		e string
+		s bool
 	}{
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Bool}, NotNull: true},
-			s: "ALTER TABLE test_table ALTER COLUMN test_column BOOL NOT NULL",
+			e: "ALTER TABLE test_table ALTER COLUMN test_column BOOL NOT NULL",
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}},
-			s: "ALTER TABLE test_table ALTER COLUMN test_column INT64",
+			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64",
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Len: 36}},
-			s: "ALTER TABLE test_table ALTER COLUMN test_column STRING(36)",
+			e: "ALTER TABLE test_table ALTER COLUMN test_column STRING(36)",
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Len: 36, Array: true}, NotNull: true},
-			s: "ALTER TABLE test_table ALTER COLUMN test_column ARRAY<STRING(36)> NOT NULL",
+			e: "ALTER TABLE test_table ALTER COLUMN test_column ARRAY<STRING(36)> NOT NULL",
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column TIMESTAMP NOT NULL",
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: false},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column TIMESTAMP",
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, AllowCommitTimestamp: &[]bool{true}[0]},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = true)",
+			s: true,
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, AllowCommitTimestamp: &[]bool{false}[0]},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = null)",
+			s: true,
 		},
 	}
 	for _, v := range values {
-		actual := hammer.AlterColumn{Table: "test_table", Def: v.d}.SQL()
+		actual := hammer.AlterColumn{Table: "test_table", Def: v.d, SetOptions: v.s}.SQL()
 
-		if actual != v.s {
-			t.Fatalf("got: %v, want: %v", actual, v.s)
+		if actual != v.e {
+			t.Fatalf("got: %v, want: %v", actual, v.e)
 		}
 	}
 }

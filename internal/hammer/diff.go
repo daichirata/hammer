@@ -165,31 +165,24 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		}
 
 		if g.columnTypeEqual(fromCol, toCol) {
-			if !fromCol.NotNull && toCol.NotNull {
-				ddl.Append(Update{Table: to.Name, Def: toCol})
-			}
-			ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
-		} else {
-			indexes := []*spansql.CreateIndex{}
-			for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name) {
-				if !g.isDropedIndex(i.Name) {
-					indexes = append(indexes, i)
+			if fromCol.Type.Base == spansql.Timestamp {
+				if fromCol.NotNull != toCol.NotNull {
+					if !fromCol.NotNull && toCol.NotNull {
+						ddl.Append(Update{Table: to.Name, Def: toCol})
+					}
+					ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
 				}
-			}
-			for _, i := range indexes {
-				ddl.Append(spansql.DropIndex{Name: i.Name})
-			}
-			ddl.Append(spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}})
-			if toCol.NotNull {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
-				ddl.Append(Update{Table: to.Name, Def: toCol})
-				ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+				if !reflect.DeepEqual(fromCol.AllowCommitTimestamp, toCol.AllowCommitTimestamp) {
+					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: true})
+				}
 			} else {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+				if !fromCol.NotNull && toCol.NotNull {
+					ddl.Append(Update{Table: to.Name, Def: toCol})
+				}
+				ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
 			}
-			for _, i := range indexes {
-				ddl.Append(i)
-			}
+		} else {
+			ddl.AppendDDL(g.generateDDLForDropAndCreateColumn(from, to, fromCol, toCol))
 		}
 	}
 	for _, fromCol := range from.Columns {
@@ -199,6 +192,32 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 				Alteration: spansql.DropColumn{Name: fromCol.Name},
 			})
 		}
+	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, toCol spansql.ColumnDef) DDL {
+	ddl := DDL{}
+
+	indexes := []*spansql.CreateIndex{}
+	for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name) {
+		if !g.isDropedIndex(i.Name) {
+			indexes = append(indexes, i)
+		}
+	}
+	for _, i := range indexes {
+		ddl.Append(spansql.DropIndex{Name: i.Name})
+	}
+	ddl.Append(spansql.AlterTable{Name: from.Name, Alteration: spansql.DropColumn{Name: fromCol.Name}})
+	if toCol.NotNull {
+		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
+		ddl.Append(Update{Table: to.Name, Def: toCol})
+		ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+	} else {
+		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+	}
+	for _, i := range indexes {
+		ddl.Append(i)
 	}
 	return ddl
 }

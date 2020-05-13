@@ -154,6 +154,96 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(50) NOT NULL`,
 			},
 		},
+		// change column (timestamp)
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = '0001-01-01 00:00:00' WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
+			},
+		},
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP`,
+			},
+		},
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = true)`,
+			},
+		},
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = '0001-01-01 00:00:00' WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = true)`,
+			},
+		},
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = null)`,
+			},
+		},
 		// add index
 		{
 			from: `
