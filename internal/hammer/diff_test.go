@@ -64,12 +64,12 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1)`,
 			},
 		},
-		// drop column
+		// drop column (different column positions)
 		{
 			from: `
 CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
   t1_2 INT64 NOT NULL,
+  t1_1 INT64 NOT NULL,
 ) PRIMARY KEY(t1_1);
 `,
 			to: `
@@ -177,7 +177,7 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
-		// drop index
+		// drop index (different index positions)
 		{
 			from: `
 CREATE TABLE t1 (
@@ -185,7 +185,9 @@ CREATE TABLE t1 (
   t1_2 STRING(36) NOT NULL,
   t1_3 STRING(36) NOT NULL,
 ) PRIMARY KEY(t1_1);
+
 CREATE INDEX idx_t1_1 ON t1(t1_2);
+
 CREATE INDEX idx_t1_2 ON t1(t1_3);
 
 `,
