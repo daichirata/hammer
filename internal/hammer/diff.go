@@ -92,13 +92,13 @@ func (g *Generator) GenerateDDL() DDL {
 			continue
 		}
 
-		if !reflect.DeepEqual(fromTable.Interleave, toTable.Interleave) {
+		if !g.interleaveEqual(fromTable, toTable) {
 			ddl.AppendDDL(g.generateDDLForDropIndexAndTable(fromTable))
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
 
-		if !g.primaryKeyDeepEqual(fromTable, toTable) {
+		if !g.primaryKeyEqual(fromTable, toTable) {
 			ddl.AppendDDL(g.generateDDLForDropIndexAndTable(fromTable))
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
@@ -143,26 +143,6 @@ func (g *Generator) generateDDLForDropIndexAndTable(table *Table) DDL {
 	return ddl
 }
 
-func (g *Generator) primaryKeyDeepEqual(from, to *Table) bool {
-	if !reflect.DeepEqual(from.PrimaryKey, to.PrimaryKey) {
-		return false
-	}
-	for _, pk := range to.PrimaryKey {
-		fromCol, exists := g.findColumnByName(from.Columns, pk.Column)
-		if !exists {
-			return false
-		}
-		toCol, exists := g.findColumnByName(to.Columns, pk.Column)
-		if !exists {
-			return false
-		}
-		if !reflect.DeepEqual(fromCol, toCol) {
-			return false
-		}
-	}
-	return true
-}
-
 func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 	ddl := DDL{}
 
@@ -180,11 +160,11 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		if reflect.DeepEqual(fromCol, toCol) {
+		if g.columnDefEqual(fromCol, toCol) {
 			continue
 		}
 
-		if g.typeEqual(fromCol, toCol) {
+		if g.columnTypeEqual(fromCol, toCol) {
 			if !fromCol.NotNull && toCol.NotNull {
 				ddl.Append(Update{Table: to.Name, Def: toCol})
 			}
@@ -229,7 +209,7 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
 
-		if exists && !g.isIndexEqual(fromIndex, toIndex) {
+		if exists && !g.indexEqual(*fromIndex, *toIndex) {
 			ddl.Append(spansql.DropIndex{Name: fromIndex.Name})
 			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
 		}
@@ -249,10 +229,9 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
 
-		if !exists || !g.isIndexEqual(fromIndex, toIndex) {
+		if !exists || !g.indexEqual(*fromIndex, *toIndex) {
 			ddl.Append(toIndex)
 		}
-
 	}
 	return ddl
 }
@@ -275,33 +254,46 @@ func (g *Generator) isDropedIndex(name string) bool {
 	return false
 }
 
-func (g *Generator) typeEqual(x, y spansql.ColumnDef) bool {
-	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
+func (g *Generator) interleaveEqual(x, y *Table) bool {
+	return reflect.DeepEqual(x.Interleave, y.Interleave)
 }
 
-func (g *Generator) isIndexEqual(x, y *spansql.CreateIndex) bool {
-	if !(x.Name == y.Name &&
-		x.Table == y.Table &&
-		x.Unique == y.Unique &&
-		x.NullFiltered == y.NullFiltered &&
-		x.Interleave == y.Interleave) {
+func (g *Generator) primaryKeyEqual(x, y *Table) bool {
+	if !reflect.DeepEqual(x.PrimaryKey, y.PrimaryKey) {
 		return false
 	}
-	for _, a := range x.Columns {
-		for _, b := range y.Columns {
-			if a.SQL() != b.SQL() {
-				return false
-			}
+	for _, pk := range y.PrimaryKey {
+		xCol, exists := g.findColumnByName(x.Columns, pk.Column)
+		if !exists {
+			return false
 		}
-	}
-	for _, a := range x.Storing {
-		for _, b := range y.Storing {
-			if a != b {
-				return false
-			}
+		yCol, exists := g.findColumnByName(y.Columns, pk.Column)
+		if !exists {
+			return false
+		}
+		if !g.columnDefEqual(xCol, yCol) {
+			return false
 		}
 	}
 	return true
+}
+
+func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
+	x.Position = spansql.Position{}
+	y.Position = spansql.Position{}
+
+	return reflect.DeepEqual(x, y)
+}
+
+func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {
+	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
+}
+
+func (g *Generator) indexEqual(x, y spansql.CreateIndex) bool {
+	x.Position = spansql.Position{}
+	y.Position = spansql.Position{}
+
+	return reflect.DeepEqual(x, y)
 }
 
 func (g *Generator) allowNull(col spansql.ColumnDef) spansql.ColumnDef {
