@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/spanner"
-	"cloud.google.com/go/spanner/admin/database/apiv1"
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"google.golang.org/api/option"
 	databasepb "google.golang.org/genproto/googleapis/spanner/admin/database/v1"
 )
@@ -63,7 +63,7 @@ func (c *Client) CreateDatabase(ctx context.Context, ddl DDL) error {
 	}
 	op, err := c.admin.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", parts[1], parts[3]),
-		CreateStatement: fmt.Sprintf("CREATE DATABASE %s", parts[5]),
+		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", parts[5]),
 		ExtraStatements: stmts,
 	})
 	if err != nil {
