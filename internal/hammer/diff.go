@@ -172,7 +172,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 					}
 					ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
 				}
-				if !reflect.DeepEqual(fromCol.AllowCommitTimestamp, toCol.AllowCommitTimestamp) {
+				if !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp) {
 					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: true})
 				}
 			} else {

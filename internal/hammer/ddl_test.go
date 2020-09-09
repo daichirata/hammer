@@ -39,12 +39,12 @@ func TestAlterColumn_SQL(t *testing.T) {
 			e: "ALTER TABLE test_table ALTER COLUMN test_column TIMESTAMP",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, AllowCommitTimestamp: &[]bool{true}[0]},
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, Options: spansql.ColumnOptions{AllowCommitTimestamp: &[]bool{true}[0]}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = true)",
 			s: true,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, AllowCommitTimestamp: &[]bool{false}[0]},
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, Options: spansql.ColumnOptions{AllowCommitTimestamp: &[]bool{false}[0]}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = null)",
 			s: true,
 		},

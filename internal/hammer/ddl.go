@@ -44,7 +44,7 @@ func (a AlterColumn) SQL() string {
 	str := "ALTER TABLE " + a.Table + " ALTER COLUMN " + spansql.ID(a.Def.Name).SQL()
 
 	if a.SetOptions {
-		if a.Def.AllowCommitTimestamp != nil && *a.Def.AllowCommitTimestamp {
+		if a.Def.Options.AllowCommitTimestamp != nil && *a.Def.Options.AllowCommitTimestamp {
 			str += " SET OPTIONS (allow_commit_timestamp = true)"
 		} else {
 			str += " SET OPTIONS (allow_commit_timestamp = null)"
