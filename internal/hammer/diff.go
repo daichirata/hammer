@@ -152,16 +152,19 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toConstraint := range to.Constraints {
-		var fromConstraint spansql.TableConstraint
-		var exists bool
+		isUnnamedConstraint := toConstraint.Name == ""
 
-		if toConstraint.Name == "" {
-			fromConstraint, exists = g.findUnnamedConstraint(from.Constraints, toConstraint)
-		} else {
-			fromConstraint, exists = g.findNamedConstraint(from.Constraints, toConstraint.Name)
+		if isUnnamedConstraint {
+			_, exists := g.findUnnamedConstraint(from.Constraints, toConstraint)
+			if !exists {
+				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddConstraint{Constraint: toConstraint}})
+			}
+			continue
 		}
 
-		if g.isDroppedConstraint(toConstraint) || !exists {
+		fromConstraint, exists := g.findNamedConstraint(from.Constraints, toConstraint.Name)
+
+		if !exists || g.isDroppedConstraint(toConstraint) {
 			ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddConstraint{Constraint: toConstraint}})
 			continue
 		}
@@ -243,11 +246,18 @@ func (g *Generator) generateDDLForDropColumn(table string, column string) DDL {
 	ddl := DDL{}
 
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint spansql.TableConstraint) bool {
+		for _, c := range constraint.ForeignKey.Columns {
+			if column == c {
+				return true
+			}
+		}
+
 		for _, refColumn := range constraint.ForeignKey.RefColumns {
 			if column == refColumn {
 				return true
 			}
 		}
+
 		return false
 	}))
 

@@ -548,8 +548,8 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`ALTER TABLE t2 DROP COLUMN t2_2`,
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t2 DROP COLUMN t2_2`,
 			},
 		},
 		// Drop constraint referencing dropped table.
@@ -574,7 +574,7 @@ CREATE TABLE t2 (
 				`DROP TABLE t1`,
 			},
 		},
-		// Drop named constraint referencing multiple dropped columns.
+		// Drop multiple named constraint referencing dropped column.
 		{
 			from: `
 CREATE TABLE t1 (
@@ -609,6 +609,37 @@ CREATE TABLE t3 (
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
 				`ALTER TABLE t3 DROP CONSTRAINT FK_t3`,
 				`ALTER TABLE t1 DROP COLUMN t1_1`,
+			},
+		},
+		// Drop named constraint referencing multiple dropped columns.
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+  t1_3 INT64,
+) PRIMARY KEY(t1_3);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1,t2_2) REFERENCES t1 (t1_1,t1_2),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_3 INT64,
+) PRIMARY KEY(t1_3);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t1 DROP COLUMN t1_1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
 			},
 		},
 		// Update constraint referencing dropped column
