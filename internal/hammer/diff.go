@@ -40,6 +40,17 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
 			}
+		case *spansql.AlterTable:
+			t, ok := m[stmt.Name]
+			if !ok {
+				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
+			}
+			switch alteration := stmt.Alteration.(type) {
+			case spansql.AddConstraint:
+				t.Constraints = append(t.Constraints, alteration.Constraint)
+			default:
+				return nil, fmt.Errorf("unsupported table alteration: %v", stmt)
+			}
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
 		}
