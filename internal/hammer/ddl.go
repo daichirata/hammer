@@ -35,13 +35,13 @@ func ParseDDL(uri, schema string) (DDL, error) {
 }
 
 type AlterColumn struct {
-	Table      string
+	Table      spansql.ID
 	Def        spansql.ColumnDef
 	SetOptions bool
 }
 
 func (a AlterColumn) SQL() string {
-	str := "ALTER TABLE " + a.Table + " ALTER COLUMN " + spansql.ID(a.Def.Name).SQL()
+	str := "ALTER TABLE " + a.Table.SQL() + " ALTER COLUMN " + spansql.ID(a.Def.Name).SQL()
 
 	if a.SetOptions {
 		if a.Def.Options.AllowCommitTimestamp != nil && *a.Def.Options.AllowCommitTimestamp {
@@ -59,7 +59,7 @@ func (a AlterColumn) SQL() string {
 }
 
 type Update struct {
-	Table string
+	Table spansql.ID
 	Def   spansql.ColumnDef
 }
 
