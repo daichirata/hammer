@@ -389,6 +389,339 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 				`CREATE INDEX idx_t3 ON t3(t3_1)`,
 			},
 		},
+		// Create table with constraint
+		{
+			from: `
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1)`,
+			},
+		},
+		// Add named constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// Add unnamed constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// Update named constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// Update unnamed constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+  FOREIGN KEY (t2_2) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// Drop named constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+			},
+		},
+		// Drop unnamed constraint
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{},
+		},
+		// Update constraint referencing new column
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+  FOREIGN KEY (t2_2) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 ADD COLUMN t2_2 INT64`,
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// Drop constraint referencing dropped column.
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t2 DROP COLUMN t2_2`,
+			},
+		},
+		// Drop constraint referencing dropped table.
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`DROP TABLE t1`,
+			},
+		},
+		// Drop multiple named constraint referencing dropped column.
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+
+CREATE TABLE t3 (
+  t3_1 INT64,
+  CONSTRAINT FK_t3 FOREIGN KEY (t3_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t3_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_2 INT64,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+
+CREATE TABLE t3 (
+  t3_1 INT64,
+) PRIMARY KEY(t3_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t3 DROP CONSTRAINT FK_t3`,
+				`ALTER TABLE t1 DROP COLUMN t1_1`,
+			},
+		},
+		// Drop named constraint referencing multiple dropped columns.
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+  t1_3 INT64,
+) PRIMARY KEY(t1_3);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1,t2_2) REFERENCES t1 (t1_1,t1_2),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_3 INT64,
+) PRIMARY KEY(t1_3);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  t2_2 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t1 DROP COLUMN t1_1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+		// Update constraint referencing dropped column
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_2 INT64,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_2),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`ALTER TABLE t1 DROP COLUMN t1_1`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_2)`,
+			},
+		},
+		// Recreate constraint if recreating referenced table.
+		{
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
+				`DROP TABLE t1`,
+				`CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64,
+) PRIMARY KEY(t1_2)`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
+			},
+		},
+		// AlterTable add foreign key
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64,
+) PRIMARY KEY(t2_1);
+ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
+			},
+		},
 	}
 	for i, v := range values {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
