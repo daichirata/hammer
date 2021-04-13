@@ -59,7 +59,7 @@ var (
 				return err
 			}
 			for _, stmt := range ddl.List {
-				fmt.Println(stmt.SQL())
+				fmt.Println(stmt.SQL() + ";")
 			}
 			return nil
 		},
