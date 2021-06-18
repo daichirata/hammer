@@ -722,6 +722,25 @@ ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1);
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
+		// Only position's diff
+		{
+			from: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{},
+		},
 	}
 	for i, v := range values {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
