@@ -5,6 +5,8 @@ import (
 	"reflect"
 
 	"cloud.google.com/go/spanner/spansql"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func Diff(ddl1, ddl2 DDL) (DDL, error) {
@@ -423,10 +425,7 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 }
 
 func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
-	x.Position = spansql.Position{}
-	y.Position = spansql.Position{}
-
-	return reflect.DeepEqual(x, y)
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
 }
 
 func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {
@@ -434,31 +433,11 @@ func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {
 }
 
 func (g *Generator) constraintEqual(x, y spansql.TableConstraint) bool {
-	x.Position = spansql.Position{}
-	y.Position = spansql.Position{}
-
-	fkX, okX := x.Constraint.(spansql.ForeignKey)
-	fkY, okY := y.Constraint.(spansql.ForeignKey)
-	if okX != okY {
-		return false
-	}
-
-	// for ForeingKey
-	if okX {
-		fkX.Position = spansql.Position{}
-		fkY.Position = spansql.Position{}
-		x.Constraint = fkX
-		y.Constraint = fkY
-	}
-
-	return reflect.DeepEqual(x, y)
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
 }
 
 func (g *Generator) indexEqual(x, y spansql.CreateIndex) bool {
-	x.Position = spansql.Position{}
-	y.Position = spansql.Position{}
-
-	return reflect.DeepEqual(x, y)
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
 }
 
 func (g *Generator) allowNull(col spansql.ColumnDef) spansql.ColumnDef {
