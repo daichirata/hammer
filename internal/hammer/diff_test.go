@@ -2,8 +2,8 @@ package hammer_test
 
 import (
 	"context"
-	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/daichirata/hammer/internal/hammer"
@@ -18,12 +18,13 @@ func (s StringSource) DDL(context.Context) (hammer.DDL, error) {
 
 func TestDiff(t *testing.T) {
 	values := []struct {
+		name     string
 		from     string
 		to       string
 		expected []string
 	}{
-		// drop table
 		{
+			name: "drop table",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -42,8 +43,8 @@ CREATE TABLE t1 (
 				`DROP TABLE t2`,
 			},
 		},
-		// create table
 		{
+			name: "create table",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -64,8 +65,8 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1)`,
 			},
 		},
-		// drop column (different column positions)
 		{
+			name: "drop column (different column positions)",
 			from: `
 CREATE TABLE t1 (
   t1_2 INT64 NOT NULL,
@@ -81,8 +82,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 DROP COLUMN t1_2`,
 			},
 		},
-		// add column (allow null)
 		{
+			name: "add column (allow null)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -98,8 +99,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ADD COLUMN t1_2 INT64`,
 			},
 		},
-		// add column (not null)
 		{
+			name: "add column (not null)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -117,8 +118,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ALTER COLUMN t1_2 INT64 NOT NULL`,
 			},
 		},
-		// change column (different type)
 		{
+			name: "change column (different type)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -136,8 +137,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(36)`,
 			},
 		},
-		// change column (same type)
 		{
+			name: "change column (same type)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -154,8 +155,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(50) NOT NULL`,
 			},
 		},
-		// change column (timestamp)
 		{
+			name: "change column (timestamp)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -174,6 +175,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "change column (timestamp)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -191,6 +193,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "change column (timestamp)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -208,6 +211,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "change column (timestamp)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -227,6 +231,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "change column (timestamp)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -244,8 +249,8 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = null)`,
 			},
 		},
-		// add index
 		{
+			name: "add index",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -267,8 +272,8 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
-		// drop index (different index positions)
 		{
+			name: "drop index (different index positions)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -293,8 +298,8 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`DROP INDEX idx_t1_1`,
 			},
 		},
-		// change indexed column
 		{
+			name: "change indexed column",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -322,8 +327,8 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
-		// change column (interleaved)
 		{
+			name: "change column (interleaved)",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -389,8 +394,8 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 				`CREATE INDEX idx_t3 ON t3(t3_1)`,
 			},
 		},
-		// Create table with constraint
 		{
+			name: "Create table with constraint",
 			from: `
 		`,
 			to: `
@@ -406,8 +411,8 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1)`,
 			},
 		},
-		// Add named constraint
 		{
+			name: "Add named constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -423,8 +428,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Add unnamed constraint
 		{
+			name: "Add unnamed constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -440,8 +445,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Update named constraint
 		{
+			name: "Update named constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -461,8 +466,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Update unnamed constraint
 		{
+			name: "Update unnamed constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -482,8 +487,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Drop named constraint
 		{
+			name: "Drop named constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -499,8 +504,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
 			},
 		},
-		// Drop unnamed constraint
 		{
+			name: "Drop unnamed constraint",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
@@ -514,8 +519,8 @@ CREATE TABLE t2 (
 		`,
 			expected: []string{},
 		},
-		// Update constraint referencing new column
 		{
+			name: "Update constraint referencing new column",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64,
@@ -533,8 +538,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Drop constraint referencing dropped column.
 		{
+			name: "Drop constraint referencing dropped column.",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64,
@@ -552,8 +557,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 DROP COLUMN t2_2`,
 			},
 		},
-		// Drop constraint referencing dropped table.
 		{
+			name: "Drop constraint referencing dropped table.",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64,
@@ -574,8 +579,8 @@ CREATE TABLE t2 (
 				`DROP TABLE t1`,
 			},
 		},
-		// Drop multiple named constraint referencing dropped column.
 		{
+			name: "Drop multiple named constraint referencing dropped column.",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64,
@@ -611,8 +616,8 @@ CREATE TABLE t3 (
 				`ALTER TABLE t1 DROP COLUMN t1_1`,
 			},
 		},
-		// Drop named constraint referencing multiple dropped columns.
 		{
+			name: "Drop named constraint referencing multiple dropped columns.",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64,
@@ -642,8 +647,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t1 DROP COLUMN t1_2`,
 			},
 		},
-		// Update constraint referencing dropped column
 		{
+			name: "Update constraint referencing dropped column",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64,
@@ -671,8 +676,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_2)`,
 			},
 		},
-		// Recreate constraint if recreating referenced table.
 		{
+			name: "Recreate constraint if recreating referenced table.",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64,
@@ -705,8 +710,8 @@ CREATE TABLE t2 (
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// AlterTable add foreign key
 		{
+			name: "AlterTable add foreign key",
 			from: `
 CREATE TABLE t2 (
   t2_1 INT64,
@@ -722,28 +727,31 @@ ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1);
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
-		// Only position's diff
 		{
+			name: "Only position's diff",
 			from: `
+
+
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
   t2_2 INT64 NOT NULL,
   CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
 ) PRIMARY KEY(t2_1);
+CREATE INDEX idx_t2_1 ON t2(t2_1);
 		`,
 			to: `
 CREATE TABLE t2 (
   t2_1 INT64 NOT NULL,
   t2_2 INT64 NOT NULL,
-
   CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
 ) PRIMARY KEY(t2_1);
+CREATE INDEX idx_t2_1 ON t2(t2_1);
 		`,
 			expected: []string{},
 		},
 	}
-	for i, v := range values {
-		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+	for _, v := range values {
+		t.Run(v.name, func(t *testing.T) {
 			ctx := context.Background()
 
 			d1, err := StringSource(v.from).DDL(ctx)
@@ -762,7 +770,7 @@ CREATE TABLE t2 (
 			actual := convertStrings(ddl)
 
 			if !reflect.DeepEqual(actual, v.expected) {
-				t.Fatalf("got: %v, want: %v", actual, v.expected)
+				t.Fatalf("\ngot:\n%s,\nwant:\n%s\n", strings.Join(actual, "\n"), strings.Join(v.expected, "\n"))
 			}
 		})
 	}
