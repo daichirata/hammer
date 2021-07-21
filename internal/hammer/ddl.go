@@ -86,5 +86,5 @@ func (u Update) defaultValue() string {
 }
 
 func (u Update) SQL() string {
-	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table, u.Def.Name, u.defaultValue(), u.Def.Name)
+	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table.SQL(), u.Def.Name.SQL(), u.defaultValue(), u.Def.Name.SQL())
 }

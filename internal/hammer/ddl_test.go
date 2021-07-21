@@ -95,6 +95,10 @@ func TestUpdate_SQL(t *testing.T) {
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}},
 			s: "UPDATE test_table SET test_column = '0001-01-01 00:00:00' WHERE test_column IS NULL",
 		},
+		{
+			d: spansql.ColumnDef{Name: "order", Type: spansql.Type{Base: spansql.Int64}},
+			s: "UPDATE test_table SET `order` = 0 WHERE `order` IS NULL",
+		},
 	}
 	for _, v := range values {
 		actual := hammer.Update{Table: "test_table", Def: v.d}.SQL()
