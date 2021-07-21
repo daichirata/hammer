@@ -1,4 +1,4 @@
-VERSION  := 0.5.1
+VERSION  := 0.5.2
 BIN_NAME := hammer
 
 GOFLAGS := -tags netgo -installsuffix netgo -ldflags '-w -s --extldflags "-static"'
