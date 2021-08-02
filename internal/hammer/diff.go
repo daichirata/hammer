@@ -122,6 +122,7 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForColumns(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
+		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 	}
 	for _, fromTable := range g.from.tables {
 		if _, exists := g.findTableByName(g.to.tables, fromTable.Name); !exists {
@@ -209,6 +210,36 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 	return ddl
 }
 
+func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
+	ddl := DDL{}
+
+	switch {
+	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy != nil:
+		if reflect.DeepEqual(from.RowDeletionPolicy, to.RowDeletionPolicy) {
+			return ddl
+		}
+		ddl.Append(spansql.AlterTable{
+			Name: to.Name,
+			Alteration: spansql.ReplaceRowDeletionPolicy{
+				RowDeletionPolicy: *to.RowDeletionPolicy,
+			},
+		})
+	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy == nil:
+		ddl.Append(spansql.AlterTable{
+			Name:       to.Name,
+			Alteration: spansql.DropRowDeletionPolicy{},
+		})
+	case from.RowDeletionPolicy == nil && to.RowDeletionPolicy != nil:
+		ddl.Append(spansql.AlterTable{
+			Name: to.Name,
+			Alteration: spansql.AddRowDeletionPolicy{
+				RowDeletionPolicy: *to.RowDeletionPolicy,
+			},
+		})
+	}
+
+	return ddl
+}
 func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 	ddl := DDL{}
 

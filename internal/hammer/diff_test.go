@@ -749,6 +749,79 @@ CREATE INDEX idx_t2_1 ON t2(t2_1);
 		`,
 			expected: []string{},
 		},
+		{
+			name: "Create table with ROW DELETION POLICY",
+			from: ``,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
+		`,
+			expected: []string{
+				`CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1),
+  ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
+			},
+		},
+		{
+			name: "Add ROW DELETION POLICY",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
+		`,
+			expected: []string{
+				`ALTER TABLE t1 ADD ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
+			},
+		},
+		{
+			name: "Replace ROW DELETION POLICY",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+  t1_3 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+  t1_3 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_3, INTERVAL 30 DAY));
+		`,
+			expected: []string{
+				`ALTER TABLE t1 REPLACE ROW DELETION POLICY ( OLDER_THAN ( t1_3, INTERVAL 30 DAY ))`,
+			},
+		},
+		{
+			name: "Drop ROW DELETION POLICY",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL,
+) PRIMARY KEY(t1_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t1 DROP ROW DELETION POLICY`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
