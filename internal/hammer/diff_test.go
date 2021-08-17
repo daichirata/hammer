@@ -822,6 +822,86 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 DROP ROW DELETION POLICY`,
 			},
 		},
+		{
+			name: "Alter database, only position's diff",
+			from: `
+
+
+ALTER DATABASE db SET OPTIONS(enable_key_visualizer=true);
+		`,
+			to: `
+ALTER DATABASE db SET OPTIONS(enable_key_visualizer=true);
+		`,
+			expected: []string{},
+		},
+		{
+			name: "remove database options with null",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d', enable_key_visualizer=true);
+		`,
+			to: ``,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period=null, enable_key_visualizer=null)`,
+			},
+		},
+		{
+			name: "from is empty",
+			from: ``,
+			to: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=2);
+			`,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=2)`,
+			},
+		},
+		{
+			name: "update database options",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d', enable_key_visualizer=null);
+		`,
+			to: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=2, version_retention_period='2d', enable_key_visualizer=true);
+			`,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=2, version_retention_period='2d', enable_key_visualizer=true)`,
+			},
+		},
+		{
+			name: "update to specify only optimizer_version",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d', enable_key_visualizer=true);
+		`,
+			to: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=2);
+			`,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=2, version_retention_period=null, enable_key_visualizer=null)`,
+			},
+		},
+		{
+			name: "update to specify only version_retention_period",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d', enable_key_visualizer=true);
+		`,
+			to: `
+ALTER DATABASE db SET OPTIONS(version_retention_period='4d');
+			`,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period='4d', enable_key_visualizer=null)`,
+			},
+		},
+		{
+			name: "update to specify only enable_key_visualizer",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d');
+		`,
+			to: `
+ALTER DATABASE db SET OPTIONS(enable_key_visualizer=true);
+			`,
+			expected: []string{
+				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period=null, enable_key_visualizer=true)`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
