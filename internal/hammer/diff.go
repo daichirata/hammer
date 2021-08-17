@@ -27,7 +27,11 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 }
 
 func NewDatabase(ddl DDL) (*Database, error) {
-	var tables []*Table
+	var (
+		tables               []*Table
+		alterDatabaseOptions *spansql.AlterDatabase
+		options              spansql.SetDatabaseOptions
+	)
 
 	m := make(map[spansql.ID]*Table)
 	for _, istmt := range ddl.List {
@@ -53,6 +57,14 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			default:
 				return nil, fmt.Errorf("unsupported table alteration: %v", stmt)
 			}
+		case *spansql.AlterDatabase:
+			alterDatabaseOptions = stmt
+			switch alteration := stmt.Alteration.(type) {
+			case spansql.SetDatabaseOptions:
+				options = alteration
+			default:
+				return nil, fmt.Errorf("unsupported database alteration: %v", stmt)
+			}
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
 		}
@@ -67,11 +79,14 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables}, nil
+	return &Database{tables: tables, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables []*Table
+
+	alterDatabaseOptions *spansql.AlterDatabase
+	options              spansql.SetDatabaseOptions
 }
 
 type Table struct {
@@ -93,6 +108,10 @@ type Generator struct {
 func (g *Generator) GenerateDDL() DDL {
 	ddl := DDL{}
 
+	// for alter database
+	ddl.AppendDDL(g.generateDDLForAlterDatabaseOptions())
+
+	// for alter table
 	for _, toTable := range g.to.tables {
 		fromTable, exists := g.findTableByName(g.from.tables, toTable.Name)
 
@@ -129,6 +148,66 @@ func (g *Generator) GenerateDDL() DDL {
 			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
 		}
 	}
+	return ddl
+}
+
+var (
+	nullOptimizerVersion       = func(i int) *int { return &i }(0)
+	nullVersionRetentionPeriod = func(s string) *string { return &s }("")
+	nullEnableKeyVisualizer    = func(b bool) *bool { return &b }(false)
+)
+
+func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
+	ddl := DDL{}
+	if reflect.DeepEqual(g.to.options.Options, g.from.options.Options) {
+		return ddl
+	}
+	if g.to.alterDatabaseOptions == nil {
+		// set all null
+		ddl.Append(&spansql.AlterDatabase{
+			Name: g.from.alterDatabaseOptions.Name,
+			Alteration: spansql.SetDatabaseOptions{
+				Options: spansql.DatabaseOptions{
+					VersionRetentionPeriod: nullVersionRetentionPeriod,
+					OptimizerVersion:       nullOptimizerVersion,
+					EnableKeyVisualizer:    nullEnableKeyVisualizer,
+				},
+			},
+			Position: spansql.Position{},
+		})
+		return ddl
+	}
+
+	dbopts := spansql.DatabaseOptions{}
+
+	if g.to.options.Options.OptimizerVersion != nil {
+		dbopts.OptimizerVersion = g.to.options.Options.OptimizerVersion
+	} else if g.from.options.Options.OptimizerVersion != nil {
+		// from:specified, to:null
+		dbopts.OptimizerVersion = nullOptimizerVersion
+	}
+
+	if g.to.options.Options.VersionRetentionPeriod != nil {
+		dbopts.VersionRetentionPeriod = g.to.options.Options.VersionRetentionPeriod
+	} else if g.from.options.Options.VersionRetentionPeriod != nil {
+		// from:specified, to:null
+		dbopts.VersionRetentionPeriod = nullVersionRetentionPeriod
+	}
+
+	if g.to.options.Options.EnableKeyVisualizer != nil {
+		dbopts.EnableKeyVisualizer = g.to.options.Options.EnableKeyVisualizer
+	} else if g.from.options.Options.EnableKeyVisualizer != nil {
+		// from:specified, to:null
+		dbopts.EnableKeyVisualizer = nullEnableKeyVisualizer
+	}
+
+	ddl.Append(&spansql.AlterDatabase{
+		Name: g.to.alterDatabaseOptions.Name,
+		Alteration: spansql.SetDatabaseOptions{
+			Options: dbopts,
+		},
+		Position: spansql.Position{},
+	})
 	return ddl
 }
 
