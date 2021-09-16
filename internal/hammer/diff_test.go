@@ -170,7 +170,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
-				`UPDATE t1 SET t1_2 = '0001-01-01 00:00:00' WHERE t1_2 IS NULL`,
+				`UPDATE t1 SET t1_2 = '0001-01-01T00:00:00Z' WHERE t1_2 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
 			},
 		},
@@ -225,7 +225,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
-				`UPDATE t1 SET t1_2 = '0001-01-01 00:00:00' WHERE t1_2 IS NULL`,
+				`UPDATE t1 SET t1_2 = '0001-01-01T00:00:00Z' WHERE t1_2 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = true)`,
 			},

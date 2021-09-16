@@ -79,7 +79,7 @@ func (u Update) defaultValue() string {
 	case spansql.Date:
 		return "'0001-01-01'"
 	case spansql.Timestamp:
-		return "'0001-01-01 00:00:00'"
+		return "'0001-01-01T00:00:00Z'"
 	default:
 		return "''"
 	}

@@ -93,7 +93,7 @@ func TestUpdate_SQL(t *testing.T) {
 		},
 		{
 			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}},
-			s: "UPDATE test_table SET test_column = '0001-01-01 00:00:00' WHERE test_column IS NULL",
+			s: "UPDATE test_table SET test_column = '0001-01-01T00:00:00Z' WHERE test_column IS NULL",
 		},
 		{
 			d: spansql.ColumnDef{Name: "order", Type: spansql.Type{Base: spansql.Int64}},
