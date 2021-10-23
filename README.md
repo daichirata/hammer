@@ -16,7 +16,7 @@ or
 $ go get -u github.com/daichirata/hammer
 ```
 
-## Useage
+## Usage
 
 ```
 $ hammer -h
