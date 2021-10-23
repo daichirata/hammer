@@ -250,6 +250,63 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "add generated column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(1) NOT NULL AS (SUBSTR(t1_1, 1, 1)) STORED,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(1) NOT NULL AS (SUBSTR(t1_1, 1, 1)) STORED`,
+			},
+		},
+		{
+			name: "change column to generated column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(1) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(1) NOT NULL AS (SUBSTR(t1_1, 1, 1)) STORED,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(1) NOT NULL AS (SUBSTR(t1_1, 1, 1)) STORED`,
+			},
+		},
+		{
+			name: "change column from generated column to normal",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(1) NOT NULL AS (SUBSTR(t1_1, 1, 1)) STORED,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(1) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(1)`,
+				`UPDATE t1 SET t1_2 = '' WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(1) NOT NULL`,
+			},
+		},
+		{
 			name: "add index",
 			from: `
 CREATE TABLE t1 (

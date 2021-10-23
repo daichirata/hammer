@@ -326,7 +326,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name)
 
 		if !exists {
-			if toCol.NotNull {
+			if toCol.NotNull && toCol.Generated == nil {
 				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
 				ddl.Append(Update{Table: to.Name, Def: toCol})
 				ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
@@ -340,7 +340,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		if g.columnTypeEqual(fromCol, toCol) {
+		if g.columnTypeEqual(fromCol, toCol) && fromCol.Generated == nil && toCol.Generated == nil {
 			if fromCol.Type.Base == spansql.Timestamp {
 				if fromCol.NotNull != toCol.NotNull {
 					if !fromCol.NotNull && toCol.NotNull {
@@ -415,7 +415,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
-	if toCol.NotNull {
+	if toCol.NotNull && toCol.Generated == nil {
 		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
 		ddl.Append(Update{Table: to.Name, Def: toCol})
 		ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
