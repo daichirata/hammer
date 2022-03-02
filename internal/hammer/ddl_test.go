@@ -99,6 +99,10 @@ func TestUpdate_SQL(t *testing.T) {
 			d: spansql.ColumnDef{Name: "order", Type: spansql.Type{Base: spansql.Int64}},
 			s: "UPDATE test_table SET `order` = 0 WHERE `order` IS NULL",
 		},
+		{
+			d: spansql.ColumnDef{Name: "json", Type: spansql.Type{Base: spansql.JSON}},
+			s: "UPDATE test_table SET json = JSON '{}' WHERE json IS NULL",
+		},
 	}
 	for _, v := range values {
 		actual := hammer.Update{Table: "test_table", Def: v.d}.SQL()
