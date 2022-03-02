@@ -80,6 +80,8 @@ func (u Update) defaultValue() string {
 		return "'0001-01-01'"
 	case spansql.Timestamp:
 		return "'0001-01-01T00:00:00Z'"
+	case spansql.JSON:
+		return "JSON '{}'"
 	default:
 		return "''"
 	}
