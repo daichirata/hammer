@@ -10,7 +10,11 @@ import (
 
 type Source interface {
 	String() string
-	DDL(context.Context) (DDL, error)
+	DDL(context.Context, *DDLOption) (DDL, error)
+}
+
+type DDLOption struct {
+	IgnoreAlterDatabase bool
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
@@ -40,12 +44,12 @@ func (s *SpannerSource) String() string {
 	return s.uri
 }
 
-func (s *SpannerSource) DDL(ctx context.Context) (DDL, error) {
+func (s *SpannerSource) DDL(ctx context.Context, option *DDLOption) (DDL, error) {
 	schema, err := s.client.GetDatabaseDDL(ctx)
 	if err != nil {
 		return DDL{}, err
 	}
-	return ParseDDL(s.uri, schema)
+	return ParseDDL(s.uri, schema, option)
 }
 
 func (s *SpannerSource) Apply(ctx context.Context, ddl DDL) error {
@@ -73,10 +77,10 @@ func (s *FileSource) String() string {
 	return s.uri
 }
 
-func (s *FileSource) DDL(context.Context) (DDL, error) {
+func (s *FileSource) DDL(_ context.Context, option *DDLOption) (DDL, error) {
 	schema, err := ioutil.ReadFile(s.path)
 	if err != nil {
 		return DDL{}, err
 	}
-	return ParseDDL(s.uri, string(schema))
+	return ParseDDL(s.uri, string(schema), option)
 }

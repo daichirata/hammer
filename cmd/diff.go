@@ -44,12 +44,19 @@ var (
 			if err != nil {
 				return err
 			}
-
-			ddl1, err := source1.DDL(ctx)
+			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
 			if err != nil {
 				return err
 			}
-			ddl2, err := source2.DDL(ctx)
+			ddlOption := &hammer.DDLOption{
+				IgnoreAlterDatabase: ignoreAlterDatabase,
+			}
+
+			ddl1, err := source1.DDL(ctx, ddlOption)
+			if err != nil {
+				return err
+			}
+			ddl2, err := source2.DDL(ctx, ddlOption)
 			if err != nil {
 				return err
 			}
@@ -67,5 +74,7 @@ var (
 )
 
 func init() {
+	diffCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
+
 	rootCmd.AddCommand(diffCmd)
 }

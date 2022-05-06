@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spf13/cobra"
-
 	"github.com/daichirata/hammer/internal/hammer"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -44,8 +43,15 @@ var (
 			if err != nil {
 				return err
 			}
+			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
+			if err != nil {
+				return err
+			}
+			ddlOption := &hammer.DDLOption{
+				IgnoreAlterDatabase: ignoreAlterDatabase,
+			}
 
-			ddl, err := source.DDL(ctx)
+			ddl, err := source.DDL(ctx, ddlOption)
 			if err != nil {
 				return err
 			}
@@ -55,5 +61,7 @@ var (
 )
 
 func init() {
+	createCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
+
 	rootCmd.AddCommand(createCmd)
 }
