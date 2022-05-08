@@ -48,6 +48,14 @@ func TestAlterColumn_SQL(t *testing.T) {
 			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = null)",
 			s: true,
 		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}, Default: spansql.IntegerLiteral(1)},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 DEFAULT (1)",
+		},
+		{
+			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}, NotNull: true, Default: spansql.IntegerLiteral(1)},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 NOT NULL DEFAULT (1)",
+		},
 	}
 	for _, v := range values {
 		actual := hammer.AlterColumn{Table: "test_table", Def: v.d, SetOptions: v.s}.SQL()
@@ -102,6 +110,10 @@ func TestUpdate_SQL(t *testing.T) {
 		{
 			d: spansql.ColumnDef{Name: "json", Type: spansql.Type{Base: spansql.JSON}},
 			s: "UPDATE test_table SET json = JSON '{}' WHERE json IS NULL",
+		},
+		{
+			d: spansql.ColumnDef{Name: "default", Type: spansql.Type{Base: spansql.Int64}, Default: spansql.IntegerLiteral(1)},
+			s: "UPDATE test_table SET `default` = 1 WHERE `default` IS NULL",
 		},
 	}
 	for _, v := range values {

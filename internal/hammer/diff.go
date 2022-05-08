@@ -3,6 +3,7 @@ package hammer
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"cloud.google.com/go/spanner/spansql"
 	"github.com/google/go-cmp/cmp"
@@ -326,10 +327,9 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name)
 
 		if !exists {
-			if toCol.NotNull && toCol.Generated == nil {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
-				ddl.Append(Update{Table: to.Name, Def: toCol})
-				ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+			if toCol.NotNull && toCol.Generated == nil && toCol.Default == nil {
+				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.setDefault(toCol)}})
+				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AlterColumn{Name: toCol.Name, Alteration: spansql.DropDefault{}}})
 			} else {
 				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
 			}
@@ -415,10 +415,9 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
-	if toCol.NotNull && toCol.Generated == nil {
-		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.allowNull(toCol)}})
-		ddl.Append(Update{Table: to.Name, Def: toCol})
-		ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+	if toCol.NotNull && toCol.Generated == nil && toCol.Default == nil {
+		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.setDefault(toCol)}})
+		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AlterColumn{Name: toCol.Name, Alteration: spansql.DropDefault{}}})
 	} else {
 		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
 	}
@@ -552,6 +551,34 @@ func (g *Generator) indexEqual(x, y spansql.CreateIndex) bool {
 
 func (g *Generator) allowNull(col spansql.ColumnDef) spansql.ColumnDef {
 	col.NotNull = false
+	return col
+}
+
+func (g *Generator) setDefault(col spansql.ColumnDef) spansql.ColumnDef {
+	if col.Type.Array {
+		col.Default = spansql.Array{}
+		return col
+	}
+
+	switch col.Type.Base {
+	case spansql.Bool:
+		col.Default = spansql.False
+	case spansql.Int64:
+		col.Default = spansql.IntegerLiteral(0)
+	case spansql.Float64:
+		col.Default = spansql.FloatLiteral(0)
+	case spansql.String:
+		col.Default = spansql.StringLiteral("")
+	case spansql.Bytes:
+		col.Default = spansql.BytesLiteral("")
+	case spansql.Date:
+		col.Default = spansql.DateLiteral{Year: 1, Month: 1, Day: 1}
+	case spansql.Timestamp:
+		col.Default = spansql.TimestampLiteral(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC))
+	case spansql.JSON:
+		col.Default = spansql.JSONLiteral("{}")
+	}
+
 	return col
 }
 

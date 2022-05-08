@@ -49,12 +49,17 @@ func (a AlterColumn) SQL() string {
 		} else {
 			str += " SET OPTIONS (allow_commit_timestamp = null)"
 		}
-	} else {
-		str += " " + a.Def.Type.SQL()
-		if a.Def.NotNull {
-			str += " NOT NULL"
-		}
+		return str
 	}
+
+	str += " " + a.Def.Type.SQL()
+	if a.Def.NotNull {
+		str += " NOT NULL"
+	}
+	if a.Def.Default != nil {
+		str += " DEFAULT (" + a.Def.Default.SQL() + ")"
+	}
+
 	return str
 }
 
@@ -64,6 +69,10 @@ type Update struct {
 }
 
 func (u Update) defaultValue() string {
+	if u.Def.Default != nil {
+		return u.Def.Default.SQL()
+	}
+
 	if u.Def.Type.Array {
 		return "[]"
 	}
