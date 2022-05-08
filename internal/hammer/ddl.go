@@ -22,14 +22,17 @@ func (d *DDL) AppendDDL(ddl DDL) {
 	d.Append(ddl.List...)
 }
 
-func ParseDDL(uri, schema string) (DDL, error) {
+func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 	ddl, err := spansql.ParseDDL(uri, schema)
 	if err != nil {
 		return DDL{}, fmt.Errorf("%s failed to parse ddl: %s", uri, err)
 	}
-	list := make([]Statement, len(ddl.List))
-	for i, stmt := range ddl.List {
-		list[i] = stmt
+	list := make([]Statement, 0, len(ddl.List))
+	for _, stmt := range ddl.List {
+		if _, ok := stmt.(*spansql.AlterDatabase); ok && option.IgnoreAlterDatabase {
+			continue
+		}
+		list = append(list, stmt)
 	}
 	return DDL{List: list}, nil
 }

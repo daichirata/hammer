@@ -28,12 +28,19 @@ var (
 			ctx := context.Background()
 
 			sourceURI := args[0]
+			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
+			if err != nil {
+				return err
+			}
+			ddlOption := &hammer.DDLOption{
+				IgnoreAlterDatabase: ignoreAlterDatabase,
+			}
 
 			source, err := hammer.NewSource(ctx, sourceURI)
 			if err != nil {
 				return err
 			}
-			ddl, err := source.DDL(ctx)
+			ddl, err := source.DDL(ctx, ddlOption)
 			if err != nil {
 				return err
 			}
@@ -46,5 +53,6 @@ var (
 )
 
 func init() {
+	exportCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
 	rootCmd.AddCommand(exportCmd)
 }

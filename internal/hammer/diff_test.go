@@ -12,16 +12,17 @@ import (
 type StringSource string
 
 func (s StringSource) String() string { return string(s) }
-func (s StringSource) DDL(context.Context) (hammer.DDL, error) {
-	return hammer.ParseDDL("string", s.String())
+func (s StringSource) DDL(_ context.Context, o *hammer.DDLOption) (hammer.DDL, error) {
+	return hammer.ParseDDL("string", s.String(), o)
 }
 
 func TestDiff(t *testing.T) {
 	values := []struct {
-		name     string
-		from     string
-		to       string
-		expected []string
+		name                string
+		from                string
+		to                  string
+		ignoreAlterDatabase bool
+		expected            []string
 	}{
 		{
 			name: "drop table",
@@ -959,16 +960,32 @@ ALTER DATABASE db SET OPTIONS(enable_key_visualizer=true);
 				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period=null, enable_key_visualizer=true)`,
 			},
 		},
+		{
+			name: "ignore alter database diffs",
+			from: `
+ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d');
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+			`,
+			ignoreAlterDatabase: true,
+			expected:            []string{},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			d1, err := StringSource(v.from).DDL(ctx)
+			d1, err := StringSource(v.from).DDL(ctx, &hammer.DDLOption{IgnoreAlterDatabase: v.ignoreAlterDatabase})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			d2, err := StringSource(v.to).DDL(ctx)
+			d2, err := StringSource(v.to).DDL(ctx, &hammer.DDLOption{IgnoreAlterDatabase: v.ignoreAlterDatabase})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
