@@ -81,6 +81,7 @@ Suppose you have an existing SQL schema like the following:
 ``` sql
 CREATE TABLE users (
   user_id STRING(36) NOT NULL,
+  email STRING(MAX),
 ) PRIMARY KEY(user_id);
 ```
 
@@ -89,6 +90,7 @@ And you want "upgrade" your schema to the following:
 ``` sql
 CREATE TABLE users (
   user_id STRING(36) NOT NULL,
+  email STRING(MAX) NOT NULL,
   age INT64,
   name STRING(MAX) NOT NULL,
 ) PRIMARY KEY(user_id);
@@ -100,14 +102,16 @@ Hammer changes the schema by applying the following SQL to the spanner:
 ``` sql
 hammer diff old.sql new.sql
 
-ALTER TABLE users ADD COLUMN age INT64
-ALTER TABLE users ADD COLUMN name STRING(MAX)
-UPDATE users SET name = '' WHERE name IS NULL
-ALTER TABLE users ALTER COLUMN name STRING(MAX) NOT NULL
-CREATE INDEX idx_users_name ON users(name)
+UPDATE users SET email = '' WHERE email IS NULL;
+ALTER TABLE users ALTER COLUMN email STRING(MAX) NOT NULL;
+ALTER TABLE users ADD COLUMN age INT64;
+ALTER TABLE users ADD COLUMN name STRING(MAX) NOT NULL DEFAULT ("");
+ALTER TABLE users ALTER COLUMN name DROP DEFAULT;
+CREATE INDEX idx_users_name ON users(name);
 ```
 
-When adding a column with the NOT NULL attribute, update the default value after adding the column once, and then add the NOT NULL attribute.
+- When altering a nullable column to add the NOT NULL attribute, hammer update the column with the default value, and then add the NOT NULL attribute. (e.g. email)
+- When adding a column with the NOT NULL attribute without the DEFAULT attribute, hammer add a default value to the column implicitly, and then drop the DEFAULT attribute. (e.g. name)
 
 ## LICENSE
 
