@@ -30,6 +30,19 @@ var (
 			databaseURI := args[0]
 			sourceURI := args[1]
 
+			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
+			if err != nil {
+				return err
+			}
+			ignoreChangeStreams, err := cmd.Flags().GetBool("ignore-change-streams")
+			if err != nil {
+				return err
+			}
+			ddlOption := &hammer.DDLOption{
+				IgnoreAlterDatabase: ignoreAlterDatabase,
+				IgnoreChangeStreams: ignoreChangeStreams,
+			}
+
 			if hammer.Scheme(databaseURI) != "spanner" {
 				return fmt.Errorf("DATABASE must be a spanner URI")
 			}
@@ -40,13 +53,6 @@ var (
 			source, err := hammer.NewSource(ctx, sourceURI)
 			if err != nil {
 				return err
-			}
-			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
-			if err != nil {
-				return err
-			}
-			ddlOption := &hammer.DDLOption{
-				IgnoreAlterDatabase: ignoreAlterDatabase,
 			}
 
 			databaseDDL, err := database.DDL(ctx, ddlOption)
@@ -76,6 +82,7 @@ var (
 
 func init() {
 	applyCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
+	applyCmd.Flags().Bool("ignore-change-streams", false, "ignore change streams statements")
 
 	rootCmd.AddCommand(applyCmd)
 }

@@ -36,6 +36,19 @@ var (
 			sourceURI1 := args[0]
 			sourceURI2 := args[1]
 
+			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
+			if err != nil {
+				return err
+			}
+			ignoreChangeStreams, err := cmd.Flags().GetBool("ignore-change-streams")
+			if err != nil {
+				return err
+			}
+			ddlOption := &hammer.DDLOption{
+				IgnoreAlterDatabase: ignoreAlterDatabase,
+				IgnoreChangeStreams: ignoreChangeStreams,
+			}
+
 			source1, err := hammer.NewSource(ctx, sourceURI1)
 			if err != nil {
 				return err
@@ -43,13 +56,6 @@ var (
 			source2, err := hammer.NewSource(ctx, sourceURI2)
 			if err != nil {
 				return err
-			}
-			ignoreAlterDatabase, err := cmd.Flags().GetBool("ignore-alter-database")
-			if err != nil {
-				return err
-			}
-			ddlOption := &hammer.DDLOption{
-				IgnoreAlterDatabase: ignoreAlterDatabase,
 			}
 
 			ddl1, err := source1.DDL(ctx, ddlOption)
@@ -75,6 +81,7 @@ var (
 
 func init() {
 	diffCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
+	diffCmd.Flags().Bool("ignore-change-streams", false, "ignore change streams statements")
 
 	rootCmd.AddCommand(diffCmd)
 }

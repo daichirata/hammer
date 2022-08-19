@@ -15,6 +15,7 @@ type Source interface {
 
 type DDLOption struct {
 	IgnoreAlterDatabase bool
+	IgnoreChangeStreams bool
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
