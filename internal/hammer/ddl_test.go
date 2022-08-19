@@ -1,12 +1,79 @@
 package hammer_test
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner/spansql"
 
 	"github.com/daichirata/hammer/internal/hammer"
 )
+
+func TestParseDDL(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  string
+		option  *hammer.DDLOption
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "Failed to parse change streams",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name   STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);
+
+CREATE CHANGE STREAM LongerDataRetention
+  FOR ALL OPTIONS (
+  retention_period = '36h'
+);
+`,
+			option:  &hammer.DDLOption{},
+			wantErr: true,
+		},
+		{
+			name: "Ignore change streams",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name   STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);
+
+CREATE CHANGE STREAM LongerDataRetention
+  FOR ALL OPTIONS (
+  retention_period = '36h'
+);
+`,
+			option: &hammer.DDLOption{
+				IgnoreChangeStreams: true,
+			},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantErr {
+				if _, err := hammer.ParseDDL("", tt.schema, tt.option); err == nil {
+					t.Fatalf("got nil want error")
+				}
+			} else {
+				ddl, err := hammer.ParseDDL("", tt.schema, tt.option)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				actual := strings.Join(convertStrings(ddl), ";\n") + ";"
+
+				if !reflect.DeepEqual(actual, tt.want) {
+					t.Fatalf("\ngot:\n%s\nwant:\n%s\n", actual, tt.want)
+				}
+			}
+		})
+	}
+}
 
 func TestAlterColumn_SQL(t *testing.T) {
 	values := []struct {
