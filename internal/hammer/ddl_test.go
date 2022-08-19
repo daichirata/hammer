@@ -21,8 +21,8 @@ func TestParseDDL(t *testing.T) {
 		{
 			name: "Failed to parse change streams",
 			schema: `CREATE TABLE Users (
-  UserID STRING(10) NOT NULL,
-  Name   STRING(10) NOT NULL,
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
 ) PRIMARY KEY(UserID);
 
 CREATE CHANGE STREAM LongerDataRetention
@@ -36,8 +36,8 @@ CREATE CHANGE STREAM LongerDataRetention
 		{
 			name: "Ignore change streams",
 			schema: `CREATE TABLE Users (
-  UserID STRING(10) NOT NULL,
-  Name   STRING(10) NOT NULL,
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
 ) PRIMARY KEY(UserID);
 
 CREATE CHANGE STREAM LongerDataRetention

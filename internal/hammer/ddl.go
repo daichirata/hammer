@@ -24,17 +24,19 @@ func (d *DDL) AppendDDL(ddl DDL) {
 }
 
 func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
-	trimed := strings.ReplaceAll(schema, "\n", "")
-
 	var lines []string
-	for _, line := range strings.Split(trimed, ";") {
-		if option.IgnoreChangeStreams && strings.HasPrefix(line, "CREATE CHANGE STREAM") {
+	for _, line := range strings.Split(schema, ";") {
+		trimed := strings.TrimSpace(line)
+		if trimed == "" {
 			continue
 		}
-		lines = append(lines, line)
+		if option.IgnoreChangeStreams && strings.HasPrefix(trimed, "CREATE CHANGE STREAM") {
+			continue
+		}
+		lines = append(lines, line+";")
 	}
 
-	ddl, err := spansql.ParseDDL(uri, strings.Join(lines, ";"))
+	ddl, err := spansql.ParseDDL(uri, strings.Join(lines, ""))
 	if err != nil {
 		return DDL{}, fmt.Errorf("%s failed to parse ddl: %s", uri, err)
 	}
