@@ -1,4 +1,4 @@
-# hammer 
+# hammer
 
 hammer is a command-line tool to schema management for Google Cloud Spanner.
 
@@ -13,7 +13,7 @@ https://github.com/daichirata/hammer/releases
 or
 
 ``` shell
-$ go get -u github.com/daichirata/hammer
+$ go install github.com/daichirata/hammer@latest
 ```
 
 ## Usage
@@ -73,6 +73,15 @@ spanner://projects/{projectId}/instances/{instanceId}/databases/{databaseName}?c
 | `instanceId`   | true     | The id of the instance running Spanner                                                         |
 | `databaseName` | true     | The name of the Spanner database                                                               |
 | `credentials`  | false    | The path to the keyfile. If not present, client will use your default application credentials. |
+
+### Flags
+
+apply, create, diff and export can accept the flags defined below
+
+```
+--ignore-alter-database   ignore alter database statements
+--ignore-change-streams   ignore change streams statements
+```
 
 ### Examples
 
