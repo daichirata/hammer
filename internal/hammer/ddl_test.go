@@ -30,8 +30,12 @@ CREATE CHANGE STREAM LongerDataRetention
   retention_period = '36h'
 );
 `,
-			option:  &hammer.DDLOption{},
-			wantErr: true,
+			option: &hammer.DDLOption{},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);
+CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS( retention_period='36h' );`,
 		},
 		{
 			name: "Ignore change streams",
