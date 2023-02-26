@@ -3,11 +3,11 @@ module github.com/daichirata/hammer
 go 1.18
 
 require (
-	cloud.google.com/go/spanner v1.42.0
+	cloud.google.com/go/spanner v1.44.0
 	github.com/google/go-cmp v0.5.9
 	github.com/spf13/cobra v0.0.5
-	google.golang.org/api v0.105.0
-	google.golang.org/genproto v0.0.0-20221207170731-23e4bf6bdc37
+	google.golang.org/api v0.106.0
+	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f
 )
 
 require (
