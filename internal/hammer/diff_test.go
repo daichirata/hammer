@@ -1119,6 +1119,248 @@ CREATE TABLE t1 (
 			ignoreAlterDatabase: true,
 			expected:            []string{},
 		},
+		{
+			name: "drop change stream",
+			from: `
+CREATE CHANGE STREAM SomeStream;
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "create change stream",
+			from: ``,
+			to: `
+CREATE CHANGE STREAM SomeStream;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"CREATE CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "alter change stream watch none to all",
+			from: `
+CREATE CHANGE STREAM SomeStream;
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET FOR ALL"},
+		},
+		{
+			name: "alter change stream watch none to table",
+			from: `
+CREATE CHANGE STREAM SomeStream;
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{`CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id)`,
+				`CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id)`, "ALTER CHANGE STREAM SomeStream SET FOR Singers(id), Albums"},
+		},
+		{
+			name: "alter change stream watch all to none",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream DROP FOR ALL"},
+		},
+		{
+			name: "alter change stream watch all to table",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET FOR Singers(id), Albums"},
+		},
+		{
+			name: "alter change stream watch table to none",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream", "CREATE CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "alter change stream watch table to all",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR All;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET FOR ALL"},
+		},
+		{
+			name: "alter change stream watch table to other table",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id);
+`,
+			to: `
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Albums;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{`CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id)`, "DROP CHANGE STREAM SomeStream", "DROP TABLE Singers", `CREATE CHANGE STREAM SomeStream FOR Albums`},
+		},
+		{
+			name: "alter change stream watch column to same table",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+  name STRING(MAX) NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id);
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+  name STRING(MAX) NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(name);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET FOR Singers(name)"},
+		},
+		{
+			name: "alter change stream watch table to same table",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			to: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{},
+		},
+		{
+			name: "delete tables and related change stream",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE Albums (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR Singers, Albums;
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream", "DROP TABLE Singers", "DROP TABLE Albums"},
+		},
+		{
+			name: "delete table and related change streams",
+			from: `
+CREATE TABLE Singers (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStreamOne FOR Singers;
+CREATE CHANGE STREAM SomeStreamTwo FOR Singers;
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStreamOne", "DROP CHANGE STREAM SomeStreamTwo", "DROP TABLE Singers"},
+		},
+		{
+			name: "alter change stream option",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW' );
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period='5d', value_capture_type='NEW_ROW')"},
+		},
+		{
+			name: "alter change stream option to default",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period='1d', value_capture_type='OLD_AND_NEW_VALUES')"},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
