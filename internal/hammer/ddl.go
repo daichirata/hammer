@@ -30,9 +30,6 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 		if trimed == "" {
 			continue
 		}
-		if option.IgnoreChangeStreams && strings.HasPrefix(trimed, "CREATE CHANGE STREAM") {
-			continue
-		}
 		lines = append(lines, line+";")
 	}
 
@@ -43,6 +40,9 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 	list := make([]Statement, 0, len(ddl.List))
 	for _, stmt := range ddl.List {
 		if _, ok := stmt.(*spansql.AlterDatabase); ok && option.IgnoreAlterDatabase {
+			continue
+		}
+		if _, ok := stmt.(*spansql.CreateChangeStream); ok && option.IgnoreChangeStreams {
 			continue
 		}
 		list = append(list, stmt)

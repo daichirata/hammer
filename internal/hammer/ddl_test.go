@@ -25,6 +25,19 @@ func TestParseDDL(t *testing.T) {
   Name   STRING(10) NOT NULL, -- comment
 ) PRIMARY KEY(UserID);
 
+CREATE CHANGE STREAM LongerDataRetention INVALID SCHEMA ();
+`,
+			option:  &hammer.DDLOption{},
+			want:    ``,
+			wantErr: true,
+		},
+		{
+			name: "parse change streams",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
+) PRIMARY KEY(UserID);
+
 CREATE CHANGE STREAM LongerDataRetention
   FOR ALL OPTIONS (
   retention_period = '36h'
@@ -35,7 +48,7 @@ CREATE CHANGE STREAM LongerDataRetention
   UserID STRING(10) NOT NULL,
   Name STRING(10) NOT NULL,
 ) PRIMARY KEY(UserID);
-CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS( retention_period='36h' );`,
+CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS (retention_period='36h');`,
 		},
 		{
 			name: "Ignore change streams",
@@ -46,6 +59,26 @@ CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS( retention_period='36h'
 
 CREATE CHANGE STREAM LongerDataRetention
   FOR ALL OPTIONS (
+  retention_period = '36h'
+);
+`,
+			option: &hammer.DDLOption{
+				IgnoreChangeStreams: true,
+			},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);`,
+		},
+		{
+			name: "Ignore change streams with small cases",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
+) PRIMARY KEY(UserID);
+
+create change stream LongerDataRetention
+  for all options (
   retention_period = '36h'
 );
 `,

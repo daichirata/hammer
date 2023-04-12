@@ -21,8 +21,9 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 	}
 
 	generator := &Generator{
-		from: database1,
-		to:   database2,
+		from:                             database1,
+		to:                               database2,
+		willCreateOrAlterChangeStreamIDs: map[spansql.ID]*ChangeStream{},
 	}
 	return generator.GenerateDDL(), nil
 }
@@ -30,6 +31,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 func NewDatabase(ddl DDL) (*Database, error) {
 	var (
 		tables               []*Table
+		changeStreams        []*ChangeStream
 		alterDatabaseOptions *spansql.AlterDatabase
 		options              spansql.SetDatabaseOptions
 	)
@@ -66,6 +68,16 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			default:
 				return nil, fmt.Errorf("unsupported database alteration: %v", stmt)
 			}
+		case *spansql.CreateChangeStream:
+			if len(stmt.Watch) > 0 {
+				for _, watch := range stmt.Watch {
+					if t, ok := m[watch.Table]; ok {
+						t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
+					}
+				}
+			} else {
+				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
+			}
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
 		}
@@ -80,11 +92,12 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
-	tables []*Table
+	tables        []*Table
+	changeStreams []*ChangeStream
 
 	alterDatabaseOptions *spansql.AlterDatabase
 	options              spansql.SetDatabaseOptions
@@ -93,17 +106,32 @@ type Database struct {
 type Table struct {
 	*spansql.CreateTable
 
-	indexes  []*spansql.CreateIndex
-	children []*Table
+	indexes       []*spansql.CreateIndex
+	children      []*Table
+	changeStreams []*ChangeStream
+}
+
+type ChangeStream struct {
+	*spansql.CreateChangeStream
+}
+
+func (cs *ChangeStream) WatchNone() bool {
+	return !cs.WatchAllTables && len(cs.Watch) == 0
+}
+
+func (cs *ChangeStream) WatchTable() bool {
+	return !cs.WatchAllTables && len(cs.Watch) > 0
 }
 
 type Generator struct {
 	from *Database
 	to   *Database
 
-	dropedTable        []spansql.ID
-	dropedIndex        []spansql.ID
-	droppedConstraints []spansql.TableConstraint
+	dropedTable                      []spansql.ID
+	dropedIndex                      []spansql.ID
+	dropedChangeStream               []spansql.ID
+	droppedConstraints               []spansql.TableConstraint
+	willCreateOrAlterChangeStreamIDs map[spansql.ID]*ChangeStream
 }
 
 func (g *Generator) GenerateDDL() DDL {
@@ -143,11 +171,35 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForCreateIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
+		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
 	}
 	for _, fromTable := range g.from.tables {
 		if _, exists := g.findTableByName(g.to.tables, fromTable.Name); !exists {
 			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
 		}
+	}
+	// for alter change stream
+	for _, toChangeStream := range g.to.changeStreams {
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, toChangeStream.Name)
+		if !exists {
+			ddl.Append(toChangeStream)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, toChangeStream))
+	}
+	for _, fromChangeStream := range g.from.changeStreams {
+		if _, exists := g.findChangeStreamByName(g.to, fromChangeStream.Name); !exists {
+			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
+		}
+	}
+	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, cs.Name)
+		if !exists || g.isDropedChangeStream(cs.Name) {
+			ddl.Append(cs)
+			continue
+		}
+
+		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
 	}
 	return ddl
 }
@@ -219,6 +271,9 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 	for _, i := range table.indexes {
 		ddl.Append(i)
 	}
+	for _, cs := range table.changeStreams {
+		g.willCreateOrAlterChangeStreamIDs[cs.Name] = cs
+	}
 	return ddl
 }
 
@@ -233,6 +288,12 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	}
 	for _, i := range table.indexes {
 		ddl.Append(spansql.DropIndex{Name: i.Name})
+	}
+	for _, cs := range table.changeStreams {
+		if !g.isDropedChangeStream(cs.Name) {
+			ddl.Append(spansql.DropChangeStream{Name: cs.Name})
+			g.dropedChangeStream = append(g.dropedChangeStream, cs.Name)
+		}
 	}
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint spansql.TableConstraint) bool {
 		fk, ok := constraint.Constraint.(spansql.ForeignKey)
@@ -460,6 +521,14 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	return ddl
 }
 
+func (g *Generator) generateDDLForCreateChangeStream(from *Database, to *Table) DDL {
+	ddl := DDL{}
+
+	for _, cs := range to.changeStreams {
+		g.willCreateOrAlterChangeStreamIDs[cs.Name] = cs
+	}
+	return ddl
+}
 func (g *Generator) generateDDLForDropNamedConstraint(table spansql.ID, constraint spansql.TableConstraint) DDL {
 	ddl := DDL{}
 
@@ -509,6 +578,14 @@ func (g *Generator) isDroppedConstraint(constraint spansql.TableConstraint) bool
 	return false
 }
 
+func (g *Generator) isDropedChangeStream(name spansql.ID) bool {
+	for _, t := range g.dropedChangeStream {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
 func (g *Generator) interleaveEqual(x, y *Table) bool {
 	return reflect.DeepEqual(x.Interleave, y.Interleave)
 }
@@ -546,6 +623,10 @@ func (g *Generator) constraintEqual(x, y spansql.TableConstraint) bool {
 }
 
 func (g *Generator) indexEqual(x, y spansql.CreateIndex) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+}
+
+func (g *Generator) watchEqual(x, y []spansql.WatchDef) bool {
 	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
 }
 
@@ -666,5 +747,66 @@ func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicat
 		}
 	}
 
+	return ddl
+}
+
+func (g *Generator) findChangeStreamByName(database *Database, name spansql.ID) (changeStream *ChangeStream, exists bool) {
+	for _, cs := range database.changeStreams {
+		if cs.Name == name {
+			changeStream = cs
+			exists = true
+			break
+		}
+	}
+	for _, table := range database.tables {
+		for _, cs := range table.changeStreams {
+			if cs.Name == name {
+				changeStream = cs
+				exists = true
+				break
+			}
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL {
+	ddl := DDL{}
+	defaultRetentionPeriod := "1d"
+	defaultValueCaptureType := "OLD_AND_NEW_VALUES"
+	switch {
+	case from.WatchAllTables && to.WatchTable():
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
+	case from.WatchAllTables && to.WatchNone():
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.DropChangeStreamWatch{}})
+	case from.WatchTable() && to.WatchAllTables:
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{WatchAllTables: to.WatchAllTables}})
+	case from.WatchTable() && to.WatchNone():
+		ddl.Append(spansql.DropChangeStream{Name: to.Name})
+		ddl.Append(spansql.CreateChangeStream{Name: to.Name})
+	case from.WatchTable() && to.WatchTable():
+		if !g.watchEqual(from.Watch, to.Watch) {
+			ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
+		}
+	case from.WatchNone() && to.WatchAllTables:
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{WatchAllTables: to.WatchAllTables}})
+	case from.WatchNone() && to.WatchTable():
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
+	}
+	if !reflect.DeepEqual(from.Options, to.Options) {
+		if from.Options.RetentionPeriod != nil && to.Options.RetentionPeriod == nil {
+			to.Options.RetentionPeriod = &defaultRetentionPeriod
+		}
+		if from.Options.ValueCaptureType != nil && to.Options.ValueCaptureType == nil {
+			to.Options.ValueCaptureType = &defaultValueCaptureType
+		}
+		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterChangeStreamOptions{Options: to.Options}})
+	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
+	ddl := DDL{}
+	ddl.Append(spansql.DropChangeStream{Name: changeStream.Name})
 	return ddl
 }
