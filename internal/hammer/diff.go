@@ -611,7 +611,7 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 }
 
 func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}), cmpopts.IgnoreUnexported(spansql.TimestampLiteral{}))
 }
 
 func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {

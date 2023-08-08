@@ -1361,6 +1361,23 @@ CREATE CHANGE STREAM SomeStream FOR ALL;
 			ignoreAlterDatabase: true,
 			expected:            []string{"ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period='1d', value_capture_type='OLD_AND_NEW_VALUES')"},
 		},
+		{
+			name: "both sides have identical fields of timestamp with a default value",
+			from: `
+CREATE TABLE Nonces (
+  nonce INT64 NOT NULL,
+  expires TIMESTAMP NOT NULL DEFAULT(TIMESTAMP '2000-01-01 00:00:00.000000+00:00'),
+) PRIMARY KEY(nonce);
+`,
+			to: `
+CREATE TABLE Nonces (
+  nonce INT64 NOT NULL,
+  expires TIMESTAMP NOT NULL DEFAULT(TIMESTAMP '2000-01-01 00:00:00.000000+00:00'),
+) PRIMARY KEY(nonce);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
