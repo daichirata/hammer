@@ -403,14 +403,14 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 
 		if g.columnTypeEqual(fromCol, toCol) && fromCol.Generated == nil && toCol.Generated == nil {
 			if fromCol.Type.Base == spansql.Timestamp {
-				if fromCol.NotNull != toCol.NotNull {
+				if fromCol.NotNull != toCol.NotNull || !reflect.DeepEqual(fromCol.Default, toCol.Default) {
 					if !fromCol.NotNull && toCol.NotNull {
 						ddl.Append(Update{Table: to.Name, Def: toCol})
 					}
 					ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
-				} else {
-					setOptions := !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp)
-					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: setOptions})
+				}
+				if !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp) {
+					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: true})
 				}
 			} else {
 				if !fromCol.NotNull && toCol.NotNull {
