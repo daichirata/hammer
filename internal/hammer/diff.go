@@ -408,9 +408,9 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 						ddl.Append(Update{Table: to.Name, Def: toCol})
 					}
 					ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
-				}
-				if !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp) {
-					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: true})
+				} else {
+					setOptions := !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp)
+					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: setOptions})
 				}
 			} else {
 				if !fromCol.NotNull && toCol.NotNull {
@@ -611,7 +611,12 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 }
 
 func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}), cmpopts.IgnoreUnexported(spansql.TimestampLiteral{}))
+	return cmp.Equal(x, y,
+		cmpopts.IgnoreTypes(spansql.Position{}),
+		cmp.Comparer(func(x, y spansql.TimestampLiteral) bool {
+			return time.Time(x).Equal(time.Time(y))
+		}),
+	)
 }
 
 func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {

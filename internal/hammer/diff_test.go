@@ -1372,11 +1372,13 @@ CREATE TABLE Nonces (
 			to: `
 CREATE TABLE Nonces (
   nonce INT64 NOT NULL,
-  expires TIMESTAMP NOT NULL DEFAULT(TIMESTAMP '2000-01-01 00:00:00.000000+00:00'),
+  expires TIMESTAMP NOT NULL DEFAULT(TIMESTAMP '2000-01-01 12:00:00.000000+00:00'),
 ) PRIMARY KEY(nonce);
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{},
+			expected: []string{
+				`ALTER TABLE Nonces ALTER COLUMN expires TIMESTAMP NOT NULL DEFAULT (TIMESTAMP '2000-01-01 12:00:00.000000+00:00')`,
+			},
 		},
 	}
 	for _, v := range values {
