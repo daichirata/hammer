@@ -403,7 +403,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 
 		if g.columnTypeEqual(fromCol, toCol) && fromCol.Generated == nil && toCol.Generated == nil {
 			if fromCol.Type.Base == spansql.Timestamp {
-				if fromCol.NotNull != toCol.NotNull {
+				if fromCol.NotNull != toCol.NotNull || !reflect.DeepEqual(fromCol.Default, toCol.Default) {
 					if !fromCol.NotNull && toCol.NotNull {
 						ddl.Append(Update{Table: to.Name, Def: toCol})
 					}
@@ -611,7 +611,12 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 }
 
 func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+	return cmp.Equal(x, y,
+		cmpopts.IgnoreTypes(spansql.Position{}),
+		cmp.Comparer(func(x, y spansql.TimestampLiteral) bool {
+			return time.Time(x).Equal(time.Time(y))
+		}),
+	)
 }
 
 func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {
