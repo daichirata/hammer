@@ -1380,6 +1380,70 @@ CREATE TABLE Nonces (
 				`ALTER TABLE Nonces ALTER COLUMN expires TIMESTAMP NOT NULL DEFAULT (TIMESTAMP '2000-01-01 12:00:00.000000+00:00')`,
 			},
 		},
+		{
+			name: "drop view",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1 
+SQL SECURITY INVOKER
+AS SELECT * FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`DROP VIEW v1`,
+			},
+		},
+		{
+			name: "create view",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1 
+SQL SECURITY INVOKER
+AS SELECT * FROM t1;
+`,
+			expected: []string{
+				`CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
+			},
+		},
+		{
+			name: "replace view",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1 
+SQL SECURITY INVOKER
+AS SELECT * FROM t1 WHERE t1_1 > 0;
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1 
+SQL SECURITY INVOKER
+AS SELECT * FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
