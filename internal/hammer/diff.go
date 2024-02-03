@@ -32,6 +32,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 	var (
 		tables               []*Table
 		changeStreams        []*ChangeStream
+		views                []*View
 		alterDatabaseOptions *spansql.AlterDatabase
 		options              spansql.SetDatabaseOptions
 	)
@@ -78,6 +79,9 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			} else {
 				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
 			}
+		case *spansql.CreateView:
+			v := &View{CreateView: stmt}
+			views = append(views, v)
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
 		}
@@ -92,12 +96,13 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, views: views, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables        []*Table
 	changeStreams []*ChangeStream
+	views         []*View
 
 	alterDatabaseOptions *spansql.AlterDatabase
 	options              spansql.SetDatabaseOptions
@@ -109,6 +114,10 @@ type Table struct {
 	indexes       []*spansql.CreateIndex
 	children      []*Table
 	changeStreams []*ChangeStream
+}
+
+type View struct {
+	*spansql.CreateView
 }
 
 type ChangeStream struct {
@@ -200,6 +209,20 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
+	}
+	// for views
+	for _, toView := range g.to.views {
+		_, exists := g.findViewByName(g.from.views, toView.Name)
+		if !exists {
+			ddl.Append(toView)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
+	}
+	for _, fromView := range g.from.views {
+		if _, exists := g.findViewByName(g.to.views, fromView.Name); !exists {
+			ddl.AppendDDL(g.generateDDLForDropView(fromView))
+		}
 	}
 	return ddl
 }
@@ -813,5 +836,28 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
 	ddl := DDL{}
 	ddl.Append(spansql.DropChangeStream{Name: changeStream.Name})
+	return ddl
+}
+
+func (g *Generator) findViewByName(views []*View, name spansql.ID) (view *View, exists bool) {
+	for _, v := range views {
+		if v.Name == name {
+			view = v
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForReplaceView(view *View) DDL {
+	ddl := DDL{}
+	ddl.Append(spansql.CreateView{Name: view.Name, Position: view.Position, Query: view.Query, OrReplace: true})
+	return ddl
+}
+
+func (g *Generator) generateDDLForDropView(view *View) DDL {
+	ddl := DDL{}
+	ddl.Append(spansql.DropView{Name: view.Name})
 	return ddl
 }
