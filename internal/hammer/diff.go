@@ -676,6 +676,8 @@ func (g *Generator) setDefault(col spansql.ColumnDef) spansql.ColumnDef {
 		col.Default = spansql.IntegerLiteral(0)
 	case spansql.Float64:
 		col.Default = spansql.FloatLiteral(0)
+	case spansql.Numeric:
+		col.Default = spansql.FloatLiteral(0)
 	case spansql.String:
 		col.Default = spansql.StringLiteral("")
 	case spansql.Bytes:
