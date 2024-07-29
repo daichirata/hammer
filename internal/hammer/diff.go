@@ -3,6 +3,7 @@ package hammer
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner/spansql"
@@ -635,6 +636,9 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 
 func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
 	return cmp.Equal(x, y,
+		cmp.Comparer(func(x, y spansql.ID) bool {
+			return strings.EqualFold(string(x), string(y))
+		}),
 		cmpopts.IgnoreTypes(spansql.Position{}),
 		cmp.Comparer(func(x, y spansql.TimestampLiteral) bool {
 			return time.Time(x).Equal(time.Time(y))
@@ -695,7 +699,7 @@ func (g *Generator) setDefault(col spansql.ColumnDef) spansql.ColumnDef {
 
 func (g *Generator) findTableByName(tables []*Table, name spansql.ID) (table *Table, exists bool) {
 	for _, t := range tables {
-		if t.Name == name {
+		if strings.EqualFold(string(t.Name), string(name)) {
 			table = t
 			exists = true
 			break
@@ -706,7 +710,7 @@ func (g *Generator) findTableByName(tables []*Table, name spansql.ID) (table *Ta
 
 func (g *Generator) findColumnByName(cols []spansql.ColumnDef, name spansql.ID) (col spansql.ColumnDef, exists bool) {
 	for _, c := range cols {
-		if c.Name == name {
+		if strings.EqualFold(string(c.Name), string(name)) {
 			col = c
 			exists = true
 			break

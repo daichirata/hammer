@@ -1451,6 +1451,22 @@ AS SELECT * FROM t1;
 				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
 			},
 		},
+		{
+			name: "table and column names are not case-sensitive",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+	t1_2 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE T1 (
+	t1_1 INT64 NOT NULL,
+	T1_2 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
