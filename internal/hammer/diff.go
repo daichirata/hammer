@@ -34,6 +34,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
+		roles                []*Role
+		grants               []*Grant
 		alterDatabaseOptions *spansql.AlterDatabase
 		options              spansql.SetDatabaseOptions
 	)
@@ -83,6 +85,10 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *spansql.CreateView:
 			v := &View{CreateView: stmt}
 			views = append(views, v)
+		case *spansql.CreateRole:
+			roles = append(roles, &Role{CreateRole: stmt})
+		case *spansql.GrantRole:
+			grants = append(grants, &Grant{GrantRole: stmt})
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
 		}
@@ -97,13 +103,15 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables        []*Table
 	changeStreams []*ChangeStream
 	views         []*View
+	roles         []*Role
+	grants        []*Grant
 
 	alterDatabaseOptions *spansql.AlterDatabase
 	options              spansql.SetDatabaseOptions
@@ -119,6 +127,14 @@ type Table struct {
 
 type View struct {
 	*spansql.CreateView
+}
+
+type Role struct {
+	*spansql.CreateRole
+}
+
+type Grant struct {
+	*spansql.GrantRole
 }
 
 type ChangeStream struct {
@@ -225,6 +241,33 @@ func (g *Generator) GenerateDDL() DDL {
 			ddl.AppendDDL(g.generateDDLForDropView(fromView))
 		}
 	}
+	// for roles
+	for _, toRole := range g.to.roles {
+		_, exists := g.findRoleByName(g.from.roles, toRole.Name)
+		if !exists {
+			ddl.Append(toRole)
+			continue
+		}
+	}
+	for _, fromRole := range g.from.roles {
+		if _, exists := g.findRoleByName(g.to.roles, fromRole.Name); !exists {
+			ddl.AppendDDL(g.generateDDLForDropRole(fromRole))
+		}
+	}
+	// for grants
+	for _, fromGrant := range g.from.grants {
+		if _, exists := g.findGrant(g.to.grants, fromGrant.GrantRole); !exists {
+			ddl.AppendDDL(g.generateDDLForRevokeRole(fromGrant))
+		}
+	}
+	for _, toGrant := range g.to.grants {
+		_, exists := g.findGrant(g.from.grants, toGrant.GrantRole)
+		if !exists {
+			ddl.Append(toGrant)
+			continue
+		}
+	}
+
 	return ddl
 }
 
@@ -865,5 +908,47 @@ func (g *Generator) generateDDLForReplaceView(view *View) DDL {
 func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
 	ddl.Append(spansql.DropView{Name: view.Name})
+	return ddl
+}
+
+func (g *Generator) findRoleByName(roles []*Role, name spansql.ID) (role *Role, exists bool) {
+	for _, r := range roles {
+		if r.Name == name {
+			role = r
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForDropRole(role *Role) DDL {
+	ddl := DDL{}
+	ddl.Append(spansql.DropRole{Name: role.Name})
+	return ddl
+}
+
+func (g *Generator) findGrant(grants []*Grant, grant *spansql.GrantRole) (grantRole *Grant, exists bool) {
+	for _, g := range grants {
+		if reflect.DeepEqual(g.GrantRole, grant) {
+			grantRole = g
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForRevokeRole(grant *Grant) DDL {
+	ddl := DDL{}
+	ddl.Append(spansql.RevokeRole{
+		FromRoleNames:     grant.ToRoleNames,
+		RevokeRoleNames:   grant.GrantRoleNames,
+		Privileges:        grant.Privileges,
+		TableNames:        grant.TableNames,
+		TvfNames:          grant.TvfNames,
+		ViewNames:         grant.ViewNames,
+		ChangeStreamNames: grant.ChangeStreamNames,
+	})
 	return ddl
 }
