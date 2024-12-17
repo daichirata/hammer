@@ -51,6 +51,12 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
+		case *ast.CreateSearchIndex:
+			if t, ok := m[stmt.TableName.SQL()]; ok {
+				t.searchIndexes = append(t.searchIndexes, stmt)
+			} else {
+				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
+			}
 		case *ast.AlterTable:
 			t, ok := m[stmt.Name.SQL()]
 			if !ok {
@@ -113,6 +119,7 @@ type Table struct {
 	*ast.CreateTable
 
 	indexes       []*ast.CreateIndex
+	searchIndexes []*ast.CreateSearchIndex
 	children      []*Table
 	changeStreams []*ChangeStream
 }
@@ -151,6 +158,7 @@ type Generator struct {
 
 	dropedTable                      []string
 	dropedIndex                      []string
+	dropedSearchIndex                []string
 	dropedChangeStream               []string
 	droppedConstraints               []*ast.TableConstraint
 	willCreateOrAlterChangeStreamIDs map[string]*ChangeStream
@@ -189,8 +197,10 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 
 		ddl.AppendDDL(g.generateDDLForDropIndex(fromTable, toTable))
+		ddl.AppendDDL(g.generateDDLForDropSearchIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForColumns(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateIndex(fromTable, toTable))
+		ddl.AppendDDL(g.generateDDLForCreateSearchIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
@@ -309,6 +319,9 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 	for _, i := range table.indexes {
 		ddl.Append(i)
 	}
+	for _, si := range table.searchIndexes {
+		ddl.Append(si)
+	}
 	for _, cs := range table.changeStreams {
 		g.willCreateOrAlterChangeStreamIDs[cs.Name.SQL()] = cs
 	}
@@ -326,6 +339,9 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	}
 	for _, i := range table.indexes {
 		ddl.Append(&ast.DropIndex{Name: i.Name})
+	}
+	for _, si := range table.searchIndexes {
+		ddl.Append(&ast.DropSearchIndex{Name: si.Name})
 	}
 	for _, cs := range table.changeStreams {
 		if !g.isDropedChangeStream(cs.Name.SQL()) {
@@ -523,6 +539,16 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
 
+	searchIndexes := []*ast.CreateSearchIndex{}
+	for _, i := range g.findSearchIndexByColumn(from.searchIndexes, fromCol.Name.SQL()) {
+		if !g.isDropedSearchIndex(i.Name.SQL()) {
+			searchIndexes = append(searchIndexes, i)
+		}
+	}
+	for _, i := range searchIndexes {
+		ddl.Append(&ast.DropSearchIndex{Name: i.Name})
+	}
+
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
 	if toCol.NotNull && toCol.DefaultSemantics == nil {
@@ -532,6 +558,9 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
 	}
 	for _, i := range indexes {
+		ddl.Append(i)
+	}
+	for _, i := range searchIndexes {
 		ddl.Append(i)
 	}
 	return ddl
@@ -557,6 +586,26 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	return ddl
 }
 
+func (g *Generator) generateDDLForDropSearchIndex(from, to *Table) DDL {
+	ddl := DDL{}
+
+	for _, toIndex := range to.searchIndexes {
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, toIndex.Name.SQL())
+
+		if exists && !g.searchIndexEqual(fromIndex, toIndex) {
+			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
+			g.dropedSearchIndex = append(g.dropedSearchIndex, fromIndex.Name.SQL())
+		}
+	}
+	for _, fromIndex := range from.searchIndexes {
+		if _, exists := g.findSearchIndexByName(to.searchIndexes, fromIndex.Name.SQL()); !exists {
+			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
+			g.dropedSearchIndex = append(g.dropedSearchIndex, fromIndex.Name.SQL())
+		}
+	}
+	return ddl
+}
+
 func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	ddl := DDL{}
 
@@ -564,6 +613,19 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name.SQL())
 
 		if !exists || !g.indexEqual(fromIndex, toIndex) {
+			ddl.Append(toIndex)
+		}
+	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForCreateSearchIndex(from, to *Table) DDL {
+	ddl := DDL{}
+
+	for _, toIndex := range to.searchIndexes {
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, toIndex.Name.SQL())
+
+		if !exists || !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
 		}
 	}
@@ -613,6 +675,15 @@ func (g *Generator) isDropedTable(name string) bool {
 
 func (g *Generator) isDropedIndex(name string) bool {
 	for _, t := range g.dropedIndex {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) isDropedSearchIndex(name string) bool {
+	for _, t := range g.dropedSearchIndex {
 		if t == name {
 			return true
 		}
@@ -688,6 +759,11 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 
 func (g *Generator) indexEqual(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+
 }
 
 func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
@@ -824,6 +900,15 @@ func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (in
 	return nil, false
 }
 
+func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (index *ast.CreateSearchIndex, exists bool) {
+	for _, i := range indexes {
+		if i.Name.SQL() == name {
+			return i, true
+		}
+	}
+	return nil, false
+}
+
 func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string) []*ast.CreateIndex {
 	result := []*ast.CreateIndex{}
 	for _, i := range indexes {
@@ -835,6 +920,20 @@ func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string)
 		}
 	}
 	return result
+}
+
+func (g *Generator) findSearchIndexByColumn(indexes []*ast.CreateSearchIndex, column string) []*ast.CreateSearchIndex {
+	result := []*ast.CreateSearchIndex{}
+	for _, i := range indexes {
+		for _, c := range i.TokenListPart {
+			if c.Name == column {
+				result = append(result, i)
+				break
+			}
+		}
+	}
+	return result
+
 }
 
 func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicate func(constraint *ast.TableConstraint) bool) DDL {

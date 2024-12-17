@@ -536,6 +536,85 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 			},
 		},
 		{
+			name: "add search index",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_NGRAMS(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_1 ON t1(t1_3);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_NGRAMS(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_1 ON t1(t1_3);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4);
+`,
+			expected: []string{
+				`CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4)`,
+			},
+		},
+		{
+			name: "drop search index (different index positions)",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_NGRAMS(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_1 ON t1(t1_3);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_NGRAMS(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4);
+`,
+			expected: []string{
+				`DROP SEARCH INDEX idx_t1_1`,
+			},
+		},
+		{
+			name: "change search indexed column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_NGRAMS(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_1 ON t1(t1_3);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+  t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_1 ON t1(t1_3);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4);
+`,
+			expected: []string{
+				`DROP SEARCH INDEX idx_t1_2`,
+				`ALTER TABLE t1 DROP COLUMN t1_4`,
+				`ALTER TABLE t1 ADD COLUMN t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(t1_2)) HIDDEN`,
+				`CREATE SEARCH INDEX idx_t1_2 ON t1(t1_4)`,
+			},
+		},
+		{
 			name: "change column (interleaved)",
 			from: `
 CREATE TABLE t1 (
