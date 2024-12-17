@@ -2,10 +2,11 @@ package hammer_test
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
-	"cloud.google.com/go/spanner/spansql"
+	"github.com/cloudspannerecosystem/memefish/ast"
 
 	"github.com/daichirata/hammer/internal/hammer"
 )
@@ -44,11 +45,8 @@ CREATE CHANGE STREAM LongerDataRetention
 );
 `,
 			option: &hammer.DDLOption{},
-			want: `CREATE TABLE Users (
-  UserID STRING(10) NOT NULL,
-  Name STRING(10) NOT NULL,
-) PRIMARY KEY(UserID);
-CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS (retention_period='36h');`,
+			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);
+CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS (retention_period = "36h");`,
 		},
 		{
 			name: "Ignore change streams",
@@ -65,10 +63,7 @@ CREATE CHANGE STREAM LongerDataRetention
 			option: &hammer.DDLOption{
 				IgnoreChangeStreams: true,
 			},
-			want: `CREATE TABLE Users (
-  UserID STRING(10) NOT NULL,
-  Name STRING(10) NOT NULL,
-) PRIMARY KEY(UserID);`,
+			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);`,
 		},
 		{
 			name: "Ignore change streams with small cases",
@@ -85,10 +80,7 @@ create change stream LongerDataRetention
 			option: &hammer.DDLOption{
 				IgnoreChangeStreams: true,
 			},
-			want: `CREATE TABLE Users (
-  UserID STRING(10) NOT NULL,
-  Name STRING(10) NOT NULL,
-) PRIMARY KEY(UserID);`,
+			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);`,
 		},
 	}
 	for _, tt := range tests {
@@ -112,52 +104,56 @@ create change stream LongerDataRetention
 	}
 }
 
+func newIdent(name string) *ast.Ident {
+	return &ast.Ident{Name: name}
+}
+
 func TestAlterColumn_SQL(t *testing.T) {
 	values := []struct {
-		d spansql.ColumnDef
+		d *ast.ColumnDef
 		e string
 		s bool
 	}{
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Bool}, NotNull: true},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.BoolTypeName}, NotNull: true},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column BOOL NOT NULL",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Len: 36}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.SizedSchemaType{Name: ast.StringTypeName, Size: &ast.IntLiteral{Value: "36"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column STRING(36)",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Len: 36, Array: true}, NotNull: true},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ArraySchemaType{Item: &ast.SizedSchemaType{Name: ast.StringTypeName, Size: &ast.IntLiteral{Value: "36"}}}, NotNull: true},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column ARRAY<STRING(36)> NOT NULL",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.TimestampTypeName}, NotNull: true},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column TIMESTAMP NOT NULL",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: false},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.TimestampTypeName}, NotNull: false},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column TIMESTAMP",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, Options: spansql.ColumnOptions{AllowCommitTimestamp: &[]bool{true}[0]}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.TimestampTypeName}, NotNull: true, Options: &ast.Options{Records: []*ast.OptionsDef{{Name: newIdent("allow_commit_timestamp"), Value: &ast.BoolLiteral{Value: true}}}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = true)",
 			s: true,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}, NotNull: true, Options: spansql.ColumnOptions{AllowCommitTimestamp: &[]bool{false}[0]}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.TimestampTypeName}, NotNull: true, Options: &ast.Options{Records: []*ast.OptionsDef{{Name: newIdent("allow_commit_timestamp"), Value: &ast.BoolLiteral{Value: false}}}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column SET OPTIONS (allow_commit_timestamp = null)",
 			s: true,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}, Default: spansql.IntegerLiteral(1)},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 DEFAULT (1)",
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}, NotNull: true, Default: spansql.IntegerLiteral(1)},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, NotNull: true, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 NOT NULL DEFAULT (1)",
 		},
 	}
@@ -172,59 +168,61 @@ func TestAlterColumn_SQL(t *testing.T) {
 
 func TestUpdate_SQL(t *testing.T) {
 	values := []struct {
-		d spansql.ColumnDef
+		d *ast.ColumnDef
 		s string
 	}{
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Bool}},
-			s: "UPDATE test_table SET test_column = false WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.BoolTypeName}},
+			s: `UPDATE test_table SET test_column = FALSE WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64}},
-			s: "UPDATE test_table SET test_column = 0 WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}},
+			s: `UPDATE test_table SET test_column = 0 WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Int64, Array: true}},
-			s: "UPDATE test_table SET test_column = [] WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ArraySchemaType{Item: &ast.ScalarSchemaType{Name: ast.Int64TypeName}}},
+			s: `UPDATE test_table SET test_column = [] WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String}},
-			s: "UPDATE test_table SET test_column = '' WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.StringTypeName}},
+			s: `UPDATE test_table SET test_column = "" WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Bytes}},
-			s: "UPDATE test_table SET test_column = b'' WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.BytesTypeName}},
+			s: `UPDATE test_table SET test_column = B"" WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.String, Array: true}},
-			s: "UPDATE test_table SET test_column = [] WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ArraySchemaType{Item: &ast.ScalarSchemaType{Name: ast.StringTypeName}}},
+			s: `UPDATE test_table SET test_column = [] WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Date}},
-			s: "UPDATE test_table SET test_column = '0001-01-01' WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.DateTypeName}},
+			s: `UPDATE test_table SET test_column = DATE "0001-01-01" WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "test_column", Type: spansql.Type{Base: spansql.Timestamp}},
-			s: "UPDATE test_table SET test_column = '0001-01-01T00:00:00Z' WHERE test_column IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.TimestampTypeName}},
+			s: `UPDATE test_table SET test_column = TIMESTAMP "0001-01-01T00:00:00Z" WHERE test_column IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "order", Type: spansql.Type{Base: spansql.Int64}},
+			d: &ast.ColumnDef{Name: newIdent("order"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}},
 			s: "UPDATE test_table SET `order` = 0 WHERE `order` IS NULL",
 		},
 		{
-			d: spansql.ColumnDef{Name: "json", Type: spansql.Type{Base: spansql.JSON}},
-			s: "UPDATE test_table SET json = JSON '{}' WHERE json IS NULL",
+			d: &ast.ColumnDef{Name: newIdent("json"), Type: &ast.ScalarSchemaType{Name: ast.JSONTypeName}},
+			s: `UPDATE test_table SET json = JSON "{}" WHERE json IS NULL`,
 		},
 		{
-			d: spansql.ColumnDef{Name: "default", Type: spansql.Type{Base: spansql.Int64}, Default: spansql.IntegerLiteral(1)},
+			d: &ast.ColumnDef{Name: newIdent("default"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			s: "UPDATE test_table SET `default` = 1 WHERE `default` IS NULL",
 		},
 	}
-	for _, v := range values {
-		actual := hammer.Update{Table: "test_table", Def: v.d}.SQL()
+	for i, v := range values {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			actual := hammer.Update{Table: "test_table", Def: v.d}.SQL()
 
-		if actual != v.s {
-			t.Fatalf("got: %v, want: %v", actual, v.s)
-		}
+			if actual != v.s {
+				t.Fatalf("\ngot:\n%v\nwant:\n%v\n", actual, v.s)
+			}
+		})
 	}
 }

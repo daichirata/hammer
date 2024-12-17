@@ -2,9 +2,9 @@ package hammer_test
 
 import (
 	"context"
-	"reflect"
-	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/daichirata/hammer/internal/hammer"
 )
@@ -61,9 +61,7 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 `,
 			expected: []string{
-				`CREATE TABLE t2 (
-  t2_1 INT64 NOT NULL,
-) PRIMARY KEY(t2_1)`,
+				`CREATE TABLE t2 (t2_1 INT64 NOT NULL) PRIMARY KEY (t2_1)`,
 			},
 		},
 		{
@@ -133,15 +131,15 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ALTER COLUMN t1_5 DROP DEFAULT`,
 				`ALTER TABLE t1 ADD COLUMN t1_6 BYTES(MAX) NOT NULL DEFAULT (B"")`,
 				`ALTER TABLE t1 ALTER COLUMN t1_6 DROP DEFAULT`,
-				`ALTER TABLE t1 ADD COLUMN t1_7 DATE NOT NULL DEFAULT (DATE '0001-01-01')`,
+				`ALTER TABLE t1 ADD COLUMN t1_7 DATE NOT NULL DEFAULT (DATE "0001-01-01")`,
 				`ALTER TABLE t1 ALTER COLUMN t1_7 DROP DEFAULT`,
-				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP NOT NULL DEFAULT (TIMESTAMP '0001-01-01 00:00:00.000000+00:00')`,
+				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP NOT NULL DEFAULT (TIMESTAMP "0001-01-01T00:00:00Z")`,
 				`ALTER TABLE t1 ALTER COLUMN t1_8 DROP DEFAULT`,
-				`ALTER TABLE t1 ADD COLUMN t1_9 JSON NOT NULL DEFAULT (JSON '{}')`,
+				`ALTER TABLE t1 ADD COLUMN t1_9 JSON NOT NULL DEFAULT (JSON "{}")`,
 				`ALTER TABLE t1 ALTER COLUMN t1_9 DROP DEFAULT`,
-				`ALTER TABLE t1 ADD COLUMN t1_10 ARRAY<INT64> NOT NULL DEFAULT ([])`,
+				`ALTER TABLE t1 ADD COLUMN t1_10 ARRAY<INT64> NOT NULL DEFAULT (ARRAY[])`,
 				`ALTER TABLE t1 ALTER COLUMN t1_10 DROP DEFAULT`,
-				`ALTER TABLE t1 ADD COLUMN t1_11 NUMERIC NOT NULL DEFAULT (0)`,
+				`ALTER TABLE t1 ADD COLUMN t1_11 NUMERIC NOT NULL DEFAULT (NUMERIC "0")`,
 				`ALTER TABLE t1 ALTER COLUMN t1_11 DROP DEFAULT`,
 			},
 		},
@@ -173,9 +171,9 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ADD COLUMN t1_4 FLOAT64 DEFAULT (3)`,
 				`ALTER TABLE t1 ADD COLUMN t1_5 STRING(MAX) DEFAULT ("default")`,
 				`ALTER TABLE t1 ADD COLUMN t1_6 BYTES(MAX) DEFAULT (B"default")`,
-				`ALTER TABLE t1 ADD COLUMN t1_7 DATE DEFAULT (DATE '2022-06-18')`,
-				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP DEFAULT (TIMESTAMP '2022-06-18 04:36:00.000000+09:00')`,
-				`ALTER TABLE t1 ADD COLUMN t1_9 JSON DEFAULT (JSON '{"key": "value"}')`,
+				`ALTER TABLE t1 ADD COLUMN t1_7 DATE DEFAULT (DATE "2022-06-18")`,
+				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP DEFAULT (TIMESTAMP "2022-06-18 04:36:00.000000+09:00")`,
+				`ALTER TABLE t1 ADD COLUMN t1_9 JSON DEFAULT (JSON "{\"key\": \"value\"}")`,
 				`ALTER TABLE t1 ADD COLUMN t1_10 ARRAY<INT64> DEFAULT ([1])`,
 				`ALTER TABLE t1 ADD COLUMN t1_11 NUMERIC DEFAULT (11)`,
 			},
@@ -208,9 +206,9 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 ADD COLUMN t1_4 FLOAT64 NOT NULL DEFAULT (3)`,
 				`ALTER TABLE t1 ADD COLUMN t1_5 STRING(MAX) NOT NULL DEFAULT ("default")`,
 				`ALTER TABLE t1 ADD COLUMN t1_6 BYTES(MAX) NOT NULL DEFAULT (B"default")`,
-				`ALTER TABLE t1 ADD COLUMN t1_7 DATE NOT NULL DEFAULT (DATE '2022-06-18')`,
-				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP NOT NULL DEFAULT (TIMESTAMP '2022-06-18 04:36:00.000000+09:00')`,
-				`ALTER TABLE t1 ADD COLUMN t1_9 JSON NOT NULL DEFAULT (JSON '{"key": "value"}')`,
+				`ALTER TABLE t1 ADD COLUMN t1_7 DATE NOT NULL DEFAULT (DATE "2022-06-18")`,
+				`ALTER TABLE t1 ADD COLUMN t1_8 TIMESTAMP NOT NULL DEFAULT (TIMESTAMP "2022-06-18 04:36:00.000000+09:00")`,
+				`ALTER TABLE t1 ADD COLUMN t1_9 JSON NOT NULL DEFAULT (JSON "{\"key\": \"value\"}")`,
 				`ALTER TABLE t1 ADD COLUMN t1_10 ARRAY<INT64> NOT NULL DEFAULT ([1])`,
 				`ALTER TABLE t1 ADD COLUMN t1_11 NUMERIC NOT NULL DEFAULT (11)`,
 			},
@@ -267,7 +265,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
-				`UPDATE t1 SET t1_2 = '0001-01-01T00:00:00Z' WHERE t1_2 IS NULL`,
+				`UPDATE t1 SET t1_2 = TIMESTAMP "0001-01-01T00:00:00Z" WHERE t1_2 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
 			},
 		},
@@ -286,7 +284,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
-				`UPDATE t1 SET t1_2 = '' WHERE t1_2 IS NULL`,
+				`UPDATE t1 SET t1_2 = "" WHERE t1_2 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(MAX) NOT NULL`,
 			},
 		},
@@ -378,7 +376,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
-				`UPDATE t1 SET t1_2 = '0001-01-01T00:00:00Z' WHERE t1_2 IS NULL`,
+				`UPDATE t1 SET t1_2 = TIMESTAMP "0001-01-01T00:00:00Z" WHERE t1_2 IS NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 TIMESTAMP NOT NULL`,
 				`ALTER TABLE t1 ALTER COLUMN t1_2 SET OPTIONS (allow_commit_timestamp = true)`,
 			},
@@ -478,7 +476,7 @@ CREATE INDEX idx_t1_1 ON t1(t1_2);
 CREATE INDEX idx_t1_2 ON t1(t1_3);
 `,
 			expected: []string{
-				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
+				`CREATE INDEX idx_t1_2 ON t1 (t1_3)`,
 			},
 		},
 		{
@@ -532,7 +530,7 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`ALTER TABLE t1 DROP COLUMN t1_3`,
 				`ALTER TABLE t1 ADD COLUMN t1_3 INT64 NOT NULL DEFAULT (0)`,
 				`ALTER TABLE t1 ALTER COLUMN t1_3 DROP DEFAULT`,
-				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
+				`CREATE INDEX idx_t1_2 ON t1 (t1_3)`,
 			},
 		},
 		{
@@ -583,23 +581,11 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 				`DROP INDEX idx_t3`,
 				`DROP TABLE t3`,
 				`DROP TABLE t1`,
-				`CREATE TABLE t1 (
-  t1_1 STRING(36) NOT NULL,
-) PRIMARY KEY(t1_1)`,
-				`CREATE TABLE t2 (
-  t1_1 INT64 NOT NULL,
-  t2_1 INT64 NOT NULL,
-  t2_2 INT64 NOT NULL,
-  t2_3 INT64 NOT NULL,
-) PRIMARY KEY(t1_1, t2_1),
-  INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
-				`CREATE INDEX idx_t2 ON t2(t2_1)`,
-				`CREATE TABLE t3 (
-  t1_1 INT64 NOT NULL,
-  t3_1 INT64 NOT NULL,
-) PRIMARY KEY(t1_1, t3_1),
-  INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
-				`CREATE INDEX idx_t3 ON t3(t3_1)`,
+				`CREATE TABLE t1 (t1_1 STRING(36) NOT NULL) PRIMARY KEY (t1_1)`,
+				`CREATE TABLE t2 (t1_1 INT64 NOT NULL, t2_1 INT64 NOT NULL, t2_2 INT64 NOT NULL, t2_3 INT64 NOT NULL) PRIMARY KEY (t1_1, t2_1), INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
+				`CREATE INDEX idx_t2 ON t2 (t2_1)`,
+				`CREATE TABLE t3 (t1_1 INT64 NOT NULL, t3_1 INT64 NOT NULL) PRIMARY KEY (t1_1, t3_1), INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
+				`CREATE INDEX idx_t3 ON t3 (t3_1)`,
 			},
 		},
 		{
@@ -613,10 +599,7 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`CREATE TABLE t2 (
-  t2_1 INT64 NOT NULL,
-  CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION,
-) PRIMARY KEY(t2_1)`,
+				`CREATE TABLE t2 (t2_1 INT64 NOT NULL, CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)) PRIMARY KEY (t2_1)`,
 			},
 		},
 		{
@@ -633,7 +616,7 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`ALTER TABLE t2 ADD CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -650,7 +633,7 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`ALTER TABLE t2 ADD FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -671,7 +654,7 @@ CREATE TABLE t2 (
 		`,
 			expected: []string{
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
-				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -692,7 +675,7 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -743,7 +726,7 @@ CREATE TABLE t2 (
 		`,
 			expected: []string{
 				`ALTER TABLE t2 ADD COLUMN t2_2 INT64`,
-				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD FOREIGN KEY (t2_2) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -881,7 +864,7 @@ CREATE TABLE t2 (
 			expected: []string{
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
 				`ALTER TABLE t1 DROP COLUMN t1_1`,
-				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_2) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_2)`,
 			},
 		},
 		{
@@ -911,11 +894,8 @@ CREATE TABLE t2 (
 			expected: []string{
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
 				`DROP TABLE t1`,
-				`CREATE TABLE t1 (
-  t1_1 INT64,
-  t1_2 INT64,
-) PRIMARY KEY(t1_2)`,
-				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`CREATE TABLE t1 (t1_1 INT64, t1_2 INT64) PRIMARY KEY (t1_2)`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -932,7 +912,7 @@ CREATE TABLE t2 (
 ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1);
 		`,
 			expected: []string{
-				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION`,
+				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
 		{
@@ -967,11 +947,7 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
 		`,
 			expected: []string{
-				`CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
-  t1_2 TIMESTAMP NOT NULL,
-) PRIMARY KEY(t1_1),
-  ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
+				`CREATE TABLE t1 (t1_1 INT64 NOT NULL, t1_2 TIMESTAMP NOT NULL) PRIMARY KEY (t1_1), ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
 			},
 		},
 		{
@@ -1049,7 +1025,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 		`,
 			to: ``,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period=null, enable_key_visualizer=null)`,
+				`ALTER DATABASE db SET OPTIONS (optimizer_version = null, version_retention_period = null, enable_key_visualizer = null)`,
 			},
 		},
 		{
@@ -1059,7 +1035,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 ALTER DATABASE db SET OPTIONS(optimizer_version=2);
 			`,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=2)`,
+				`ALTER DATABASE db SET OPTIONS (optimizer_version = 2)`,
 			},
 		},
 		{
@@ -1071,7 +1047,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 ALTER DATABASE db SET OPTIONS(optimizer_version=2, version_retention_period='2d', enable_key_visualizer=true);
 			`,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=2, version_retention_period='2d', enable_key_visualizer=true)`,
+				`ALTER DATABASE db SET OPTIONS (optimizer_version = 2, version_retention_period = "2d", enable_key_visualizer = true)`,
 			},
 		},
 		{
@@ -1083,7 +1059,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 ALTER DATABASE db SET OPTIONS(optimizer_version=2);
 			`,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=2, version_retention_period=null, enable_key_visualizer=null)`,
+				`ALTER DATABASE db SET OPTIONS (optimizer_version = 2, version_retention_period = null, enable_key_visualizer = null)`,
 			},
 		},
 		{
@@ -1095,7 +1071,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 ALTER DATABASE db SET OPTIONS(version_retention_period='4d');
 			`,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period='4d', enable_key_visualizer=null)`,
+				`ALTER DATABASE db SET OPTIONS (version_retention_period = "4d", optimizer_version = null, enable_key_visualizer = null)`,
 			},
 		},
 		{
@@ -1107,7 +1083,7 @@ ALTER DATABASE db SET OPTIONS(optimizer_version=3, version_retention_period='3d'
 ALTER DATABASE db SET OPTIONS(enable_key_visualizer=true);
 			`,
 			expected: []string{
-				`ALTER DATABASE db SET OPTIONS (optimizer_version=null, version_retention_period=null, enable_key_visualizer=true)`,
+				`ALTER DATABASE db SET OPTIONS (enable_key_visualizer = true, optimizer_version = null, version_retention_period = null)`,
 			},
 		},
 		{
@@ -1170,12 +1146,11 @@ CREATE TABLE Albums (
 CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
 `,
 			ignoreAlterDatabase: true,
-			expected: []string{`CREATE TABLE Singers (
-  id INT64 NOT NULL,
-) PRIMARY KEY(id)`,
-				`CREATE TABLE Albums (
-  id INT64 NOT NULL,
-) PRIMARY KEY(id)`, "ALTER CHANGE STREAM SomeStream SET FOR Singers(id), Albums"},
+			expected: []string{
+				`CREATE TABLE Singers (id INT64 NOT NULL) PRIMARY KEY (id)`,
+				`CREATE TABLE Albums (id INT64 NOT NULL) PRIMARY KEY (id)`,
+				"ALTER CHANGE STREAM SomeStream SET FOR Singers(id), Albums",
+			},
 		},
 		{
 			name: "alter change stream watch all to none",
@@ -1272,9 +1247,12 @@ CREATE TABLE Albums (
 CREATE CHANGE STREAM SomeStream FOR Albums;
 `,
 			ignoreAlterDatabase: true,
-			expected: []string{`CREATE TABLE Albums (
-  id INT64 NOT NULL,
-) PRIMARY KEY(id)`, "DROP CHANGE STREAM SomeStream", "DROP TABLE Singers", `CREATE CHANGE STREAM SomeStream FOR Albums`},
+			expected: []string{
+				`CREATE TABLE Albums (id INT64 NOT NULL) PRIMARY KEY (id)`,
+				"DROP CHANGE STREAM SomeStream",
+				"DROP TABLE Singers",
+				`CREATE CHANGE STREAM SomeStream FOR Albums`,
+			},
 		},
 		{
 			name: "alter change stream watch column to same table",
@@ -1355,7 +1333,7 @@ CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value
 CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW' );
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{"ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period='5d', value_capture_type='NEW_ROW')"},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "5d", value_capture_type = "NEW_ROW")`},
 		},
 		{
 			name: "alter change stream option to default",
@@ -1366,7 +1344,7 @@ CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value
 CREATE CHANGE STREAM SomeStream FOR ALL;
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{"ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period='1d', value_capture_type='OLD_AND_NEW_VALUES')"},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "1d", value_capture_type = "OLD_AND_NEW_VALUES")`},
 		},
 		{
 			name: "both sides have identical fields of timestamp with a default value",
@@ -1384,7 +1362,7 @@ CREATE TABLE Nonces (
 `,
 			ignoreAlterDatabase: true,
 			expected: []string{
-				`ALTER TABLE Nonces ALTER COLUMN expires TIMESTAMP NOT NULL DEFAULT (TIMESTAMP '2000-01-01 12:00:00.000000+00:00')`,
+				`ALTER TABLE Nonces ALTER COLUMN expires TIMESTAMP NOT NULL DEFAULT (TIMESTAMP "2000-01-01 12:00:00.000000+00:00")`,
 			},
 		},
 		{
@@ -1486,9 +1464,8 @@ CREATE TABLE T1 (
 				t.Fatalf("unexpected error: %v", err)
 			}
 			actual := convertStrings(ddl)
-
-			if !reflect.DeepEqual(actual, v.expected) {
-				t.Fatalf("\ngot:\n%s,\nwant:\n%s\n", strings.Join(actual, "\n"), strings.Join(v.expected, "\n"))
+			if diff := cmp.Diff(v.expected, actual); diff != "" {
+				t.Errorf("(-want, +got)\n%s", diff)
 			}
 		})
 	}

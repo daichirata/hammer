@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
-	"cloud.google.com/go/spanner/spansql"
+	"github.com/cloudspannerecosystem/memefish/ast"
+	"github.com/cloudspannerecosystem/memefish/token"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
@@ -24,7 +24,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 	generator := &Generator{
 		from:                             database1,
 		to:                               database2,
-		willCreateOrAlterChangeStreamIDs: map[spansql.ID]*ChangeStream{},
+		willCreateOrAlterChangeStreamIDs: map[string]*ChangeStream{},
 	}
 	return generator.GenerateDDL(), nil
 }
@@ -34,53 +34,53 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
-		alterDatabaseOptions *spansql.AlterDatabase
-		options              spansql.SetDatabaseOptions
+		alterDatabaseOptions *ast.AlterDatabase
+		options              *ast.Options
 	)
 
-	m := make(map[spansql.ID]*Table)
+	m := make(map[string]*Table)
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
-		case *spansql.CreateTable:
+		case *ast.CreateTable:
 			t := &Table{CreateTable: stmt}
 			tables = append(tables, t)
-			m[stmt.Name] = t
-		case *spansql.CreateIndex:
-			if t, ok := m[stmt.Table]; ok {
+			m[stmt.Name.SQL()] = t
+		case *ast.CreateIndex:
+			if t, ok := m[stmt.TableName.SQL()]; ok {
 				t.indexes = append(t.indexes, stmt)
 			} else {
-				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
+				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
-		case *spansql.AlterTable:
-			t, ok := m[stmt.Name]
+		case *ast.AlterTable:
+			t, ok := m[stmt.Name.SQL()]
 			if !ok {
-				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name)
+				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
-			switch alteration := stmt.Alteration.(type) {
-			case spansql.AddConstraint:
-				t.Constraints = append(t.Constraints, alteration.Constraint)
+			switch alteration := stmt.TableAlteration.(type) {
+			case *ast.AddTableConstraint:
+				t.TableConstraints = append(t.TableConstraints, alteration.TableConstraint)
 			default:
 				return nil, fmt.Errorf("unsupported table alteration: %v", stmt)
 			}
-		case *spansql.AlterDatabase:
+		case *ast.AlterDatabase:
 			alterDatabaseOptions = stmt
-			switch alteration := stmt.Alteration.(type) {
-			case spansql.SetDatabaseOptions:
-				options = alteration
-			default:
-				return nil, fmt.Errorf("unsupported database alteration: %v", stmt)
-			}
-		case *spansql.CreateChangeStream:
-			if len(stmt.Watch) > 0 {
-				for _, watch := range stmt.Watch {
-					if t, ok := m[watch.Table]; ok {
-						t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
-					}
-				}
-			} else {
+			options = stmt.Options
+		case *ast.CreateChangeStream:
+			if stmt.For == nil {
 				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
+			} else {
+				switch forType := stmt.For.(type) {
+				case *ast.ChangeStreamForTables:
+					for _, table := range forType.Tables {
+						if t, ok := m[table.TableName.SQL()]; ok {
+							t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
+						}
+					}
+				default:
+					changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
+				}
 			}
-		case *spansql.CreateView:
+		case *ast.CreateView:
 			v := &View{CreateView: stmt}
 			views = append(views, v)
 		default:
@@ -88,11 +88,11 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 	for _, t := range tables {
-		if i := t.Interleave; i != nil {
-			if p, ok := m[i.Parent]; ok {
+		if i := t.Cluster; i != nil {
+			if p, ok := m[i.TableName.SQL()]; ok {
 				p.children = append(p.children, t)
 			} else {
-				return nil, fmt.Errorf("parent ddl %s not found", i.Parent)
+				return nil, fmt.Errorf("parent ddl %s not found", i.TableName.SQL())
 			}
 		}
 	}
@@ -105,43 +105,55 @@ type Database struct {
 	changeStreams []*ChangeStream
 	views         []*View
 
-	alterDatabaseOptions *spansql.AlterDatabase
-	options              spansql.SetDatabaseOptions
+	alterDatabaseOptions *ast.AlterDatabase
+	options              *ast.Options
 }
 
 type Table struct {
-	*spansql.CreateTable
+	*ast.CreateTable
 
-	indexes       []*spansql.CreateIndex
+	indexes       []*ast.CreateIndex
 	children      []*Table
 	changeStreams []*ChangeStream
 }
 
 type View struct {
-	*spansql.CreateView
+	*ast.CreateView
 }
 
 type ChangeStream struct {
-	*spansql.CreateChangeStream
+	*ast.CreateChangeStream
 }
 
-func (cs *ChangeStream) WatchNone() bool {
-	return !cs.WatchAllTables && len(cs.Watch) == 0
-}
+type ChangeStreamType string
 
-func (cs *ChangeStream) WatchTable() bool {
-	return !cs.WatchAllTables && len(cs.Watch) > 0
+const (
+	ChangeStreamTypeAll    ChangeStreamType = "ALL"
+	ChangeStreamTypeNone   ChangeStreamType = "NONE"
+	ChangeStreamTypeTables ChangeStreamType = "TABLES"
+)
+
+func (cs *ChangeStream) Type() ChangeStreamType {
+	if cs.For == nil {
+		return ChangeStreamTypeNone
+	}
+	switch cs.For.(type) {
+	case *ast.ChangeStreamForTables:
+		return ChangeStreamTypeTables
+	default:
+		return ChangeStreamTypeAll
+	}
 }
 
 type Generator struct {
 	from *Database
 	to   *Database
 
-	dropedTable                      []spansql.ID
-	dropedIndex                      []spansql.ID
-	dropedChangeStream               []spansql.ID
-	droppedConstraints               []spansql.TableConstraint
-	willCreateOrAlterChangeStreamIDs map[spansql.ID]*ChangeStream
+	dropedTable                      []string
+	dropedIndex                      []string
+	dropedChangeStream               []string
+	droppedConstraints               []*ast.TableConstraint
+	willCreateOrAlterChangeStreamIDs map[string]*ChangeStream
 }
 
 func (g *Generator) GenerateDDL() DDL {
@@ -152,14 +164,14 @@ func (g *Generator) GenerateDDL() DDL {
 
 	// for alter table
 	for _, toTable := range g.to.tables {
-		fromTable, exists := g.findTableByName(g.from.tables, toTable.Name)
+		fromTable, exists := g.findTableByName(g.from.tables, toTable.Name.SQL())
 
 		if !exists {
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
 
-		if g.isDropedTable(toTable.Name) {
+		if g.isDropedTable(toTable.Name.SQL()) {
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
@@ -184,13 +196,13 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
 	}
 	for _, fromTable := range g.from.tables {
-		if _, exists := g.findTableByName(g.to.tables, fromTable.Name); !exists {
+		if _, exists := g.findTableByName(g.to.tables, fromTable.Name.SQL()); !exists {
 			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
 		}
 	}
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
-		fromChangeStream, exists := g.findChangeStreamByName(g.from, toChangeStream.Name)
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, toChangeStream.Name.SQL())
 		if !exists {
 			ddl.Append(toChangeStream)
 			continue
@@ -198,13 +210,13 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, toChangeStream))
 	}
 	for _, fromChangeStream := range g.from.changeStreams {
-		if _, exists := g.findChangeStreamByName(g.to, fromChangeStream.Name); !exists {
+		if _, exists := g.findChangeStreamByName(g.to, fromChangeStream.Name.SQL()); !exists {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
 		}
 	}
 	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
-		fromChangeStream, exists := g.findChangeStreamByName(g.from, cs.Name)
-		if !exists || g.isDropedChangeStream(cs.Name) {
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, cs.Name.SQL())
+		if !exists || g.isDropedChangeStream(cs.Name.SQL()) {
 			ddl.Append(cs)
 			continue
 		}
@@ -213,7 +225,7 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	// for views
 	for _, toView := range g.to.views {
-		_, exists := g.findViewByName(g.from.views, toView.Name)
+		_, exists := g.findViewByName(g.from.views, toView.Name.SQL())
 		if !exists {
 			ddl.Append(toView)
 			continue
@@ -221,69 +233,71 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
 	}
 	for _, fromView := range g.from.views {
-		if _, exists := g.findViewByName(g.to.views, fromView.Name); !exists {
+		if _, exists := g.findViewByName(g.to.views, fromView.Name.SQL()); !exists {
 			ddl.AppendDDL(g.generateDDLForDropView(fromView))
 		}
 	}
 	return ddl
 }
 
-var (
-	nullOptimizerVersion       = func(i int) *int { return &i }(0)
-	nullVersionRetentionPeriod = func(s string) *string { return &s }("")
-	nullEnableKeyVisualizer    = func(b bool) *bool { return &b }(false)
-)
-
 func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
 	ddl := DDL{}
-	if reflect.DeepEqual(g.to.options.Options, g.from.options.Options) {
+	optionsFrom := make(map[string]string)
+	optionsTo := make(map[string]string)
+	if g.from.options != nil {
+		for _, o := range g.from.options.Records {
+			optionsFrom[o.Name.SQL()] = o.Value.SQL()
+		}
+	}
+	if g.to.options != nil {
+		for _, o := range g.to.options.Records {
+			optionsTo[o.Name.SQL()] = o.Value.SQL()
+		}
+	}
+	if reflect.DeepEqual(optionsFrom, optionsTo) {
 		return ddl
 	}
 	if g.to.alterDatabaseOptions == nil {
 		// set all null
-		ddl.Append(&spansql.AlterDatabase{
+		ddl.Append(&ast.AlterDatabase{
 			Name: g.from.alterDatabaseOptions.Name,
-			Alteration: spansql.SetDatabaseOptions{
-				Options: spansql.DatabaseOptions{
-					VersionRetentionPeriod: nullVersionRetentionPeriod,
-					OptimizerVersion:       nullOptimizerVersion,
-					EnableKeyVisualizer:    nullEnableKeyVisualizer,
+			Options: &ast.Options{
+				Records: []*ast.OptionsDef{
+					{
+						Name:  &ast.Ident{Name: "optimizer_version"},
+						Value: &ast.NullLiteral{},
+					},
+					{
+						Name:  &ast.Ident{Name: "version_retention_period"},
+						Value: &ast.NullLiteral{},
+					},
+					{
+						Name:  &ast.Ident{Name: "enable_key_visualizer"},
+						Value: &ast.NullLiteral{},
+					},
 				},
 			},
-			Position: spansql.Position{},
 		})
 		return ddl
 	}
 
-	dbopts := spansql.DatabaseOptions{}
-
-	if g.to.options.Options.OptimizerVersion != nil {
-		dbopts.OptimizerVersion = g.to.options.Options.OptimizerVersion
-	} else if g.from.options.Options.OptimizerVersion != nil {
-		// from:specified, to:null
-		dbopts.OptimizerVersion = nullOptimizerVersion
+	dbopts := g.to.alterDatabaseOptions.Options
+	if g.from.options != nil {
+		for _, r := range g.from.options.Records {
+			name := r.Name.SQL()
+			if _, ok := optionsTo[name]; ok {
+				continue
+			}
+			dbopts.Records = append(dbopts.Records, &ast.OptionsDef{
+				Name:  &ast.Ident{Name: name},
+				Value: &ast.NullLiteral{},
+			})
+		}
 	}
 
-	if g.to.options.Options.VersionRetentionPeriod != nil {
-		dbopts.VersionRetentionPeriod = g.to.options.Options.VersionRetentionPeriod
-	} else if g.from.options.Options.VersionRetentionPeriod != nil {
-		// from:specified, to:null
-		dbopts.VersionRetentionPeriod = nullVersionRetentionPeriod
-	}
-
-	if g.to.options.Options.EnableKeyVisualizer != nil {
-		dbopts.EnableKeyVisualizer = g.to.options.Options.EnableKeyVisualizer
-	} else if g.from.options.Options.EnableKeyVisualizer != nil {
-		// from:specified, to:null
-		dbopts.EnableKeyVisualizer = nullEnableKeyVisualizer
-	}
-
-	ddl.Append(&spansql.AlterDatabase{
-		Name: g.to.alterDatabaseOptions.Name,
-		Alteration: spansql.SetDatabaseOptions{
-			Options: dbopts,
-		},
-		Position: spansql.Position{},
+	ddl.Append(&ast.AlterDatabase{
+		Name:    g.to.alterDatabaseOptions.Name,
+		Options: dbopts,
 	})
 	return ddl
 }
@@ -296,7 +310,7 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 		ddl.Append(i)
 	}
 	for _, cs := range table.changeStreams {
-		g.willCreateOrAlterChangeStreamIDs[cs.Name] = cs
+		g.willCreateOrAlterChangeStreamIDs[cs.Name.SQL()] = cs
 	}
 	return ddl
 }
@@ -304,51 +318,51 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL {
 	ddl := DDL{}
 
-	if g.isDropedTable(table.Name) {
+	if g.isDropedTable(table.Name.SQL()) {
 		return ddl
 	}
 	for _, t := range table.children {
 		ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(t))
 	}
 	for _, i := range table.indexes {
-		ddl.Append(spansql.DropIndex{Name: i.Name})
+		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
 	for _, cs := range table.changeStreams {
-		if !g.isDropedChangeStream(cs.Name) {
-			ddl.Append(spansql.DropChangeStream{Name: cs.Name})
-			g.dropedChangeStream = append(g.dropedChangeStream, cs.Name)
+		if !g.isDropedChangeStream(cs.Name.SQL()) {
+			ddl.Append(&ast.DropChangeStream{Name: cs.Name})
+			g.dropedChangeStream = append(g.dropedChangeStream, cs.Name.SQL())
 		}
 	}
-	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint spansql.TableConstraint) bool {
-		fk, ok := constraint.Constraint.(spansql.ForeignKey)
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint *ast.TableConstraint) bool {
+		fk, ok := constraint.Constraint.(*ast.ForeignKey)
 		if !ok {
 			return false
 		}
-		return fk.RefTable == table.Name
+		return fk.ReferenceTable.SQL() == table.Name.SQL()
 	}))
-	ddl.Append(spansql.DropTable{Name: table.Name})
-	g.dropedTable = append(g.dropedTable, table.Name)
+	ddl.Append(&ast.DropTable{Name: table.Name})
+	g.dropedTable = append(g.dropedTable, table.Name.SQL())
 	return ddl
 }
 
 func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 	ddl := DDL{}
 
-	for _, toConstraint := range to.Constraints {
-		isUnnamedConstraint := toConstraint.Name == ""
+	for _, toConstraint := range to.TableConstraints {
+		isUnnamedConstraint := toConstraint.Name == nil
 
 		if isUnnamedConstraint {
-			_, exists := g.findUnnamedConstraint(from.Constraints, toConstraint)
+			_, exists := g.findUnnamedConstraint(from.TableConstraints, toConstraint)
 			if !exists {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddConstraint{Constraint: toConstraint}})
+				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint}})
 			}
 			continue
 		}
 
-		fromConstraint, exists := g.findNamedConstraint(from.Constraints, toConstraint.Name)
+		fromConstraint, exists := g.findNamedConstraint(from.TableConstraints, toConstraint.Name.SQL())
 
 		if !exists || g.isDroppedConstraint(toConstraint) {
-			ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddConstraint{Constraint: toConstraint}})
+			ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint}})
 			continue
 		}
 
@@ -357,18 +371,18 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 		}
 
 		ddl.AppendDDL(g.generateDDLForDropNamedConstraint(from.Name, fromConstraint))
-		ddl.Append(spansql.AlterTable{
-			Name:       to.Name,
-			Alteration: spansql.AddConstraint{Constraint: toConstraint},
+		ddl.Append(&ast.AlterTable{
+			Name:            to.Name,
+			TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint},
 		})
 	}
 
-	for _, fromConstraint := range from.Constraints {
-		if fromConstraint.Name == "" {
+	for _, fromConstraint := range from.TableConstraints {
+		if fromConstraint.Name == nil {
 			continue
 		}
 
-		if _, exists := g.findNamedConstraint(to.Constraints, fromConstraint.Name); !exists {
+		if _, exists := g.findNamedConstraint(to.TableConstraints, fromConstraint.Name.SQL()); !exists {
 			ddl.AppendDDL(g.generateDDLForDropNamedConstraint(from.Name, fromConstraint))
 		}
 	}
@@ -380,25 +394,25 @@ func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
 
 	switch {
 	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy != nil:
-		if reflect.DeepEqual(from.RowDeletionPolicy, to.RowDeletionPolicy) {
+		if g.createRowDeletionPolicyEqual(from.RowDeletionPolicy, to.RowDeletionPolicy) {
 			return ddl
 		}
-		ddl.Append(spansql.AlterTable{
+		ddl.Append(&ast.AlterTable{
 			Name: to.Name,
-			Alteration: spansql.ReplaceRowDeletionPolicy{
-				RowDeletionPolicy: *to.RowDeletionPolicy,
+			TableAlteration: &ast.ReplaceRowDeletionPolicy{
+				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
 			},
 		})
 	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy == nil:
-		ddl.Append(spansql.AlterTable{
-			Name:       to.Name,
-			Alteration: spansql.DropRowDeletionPolicy{},
+		ddl.Append(&ast.AlterTable{
+			Name:            to.Name,
+			TableAlteration: &ast.DropRowDeletionPolicy{},
 		})
 	case from.RowDeletionPolicy == nil && to.RowDeletionPolicy != nil:
-		ddl.Append(spansql.AlterTable{
+		ddl.Append(&ast.AlterTable{
 			Name: to.Name,
-			Alteration: spansql.AddRowDeletionPolicy{
-				RowDeletionPolicy: *to.RowDeletionPolicy,
+			TableAlteration: &ast.AddRowDeletionPolicy{
+				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
 			},
 		})
 	}
@@ -409,14 +423,14 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toCol := range to.Columns {
-		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name)
+		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name.SQL())
 
 		if !exists {
-			if toCol.NotNull && toCol.Generated == nil && toCol.Default == nil {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.setDefault(toCol)}})
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AlterColumn{Name: toCol.Name, Alteration: spansql.DropDefault{}}})
+			if toCol.NotNull && toCol.GeneratedExpr == nil && toCol.DefaultExpr == nil {
+				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefault(toCol)}})
+				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 			} else {
-				ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
 			}
 			continue
 		}
@@ -425,51 +439,51 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		if g.columnTypeEqual(fromCol, toCol) && fromCol.Generated == nil && toCol.Generated == nil {
-			if fromCol.Type.Base == spansql.Timestamp {
-				if fromCol.NotNull != toCol.NotNull || !reflect.DeepEqual(fromCol.Default, toCol.Default) {
+		if g.columnTypeEqual(fromCol, toCol) && fromCol.GeneratedExpr == nil && toCol.GeneratedExpr == nil {
+			if st, ok := fromCol.Type.(*ast.ScalarSchemaType); ok && st.Name == ast.TimestampTypeName {
+				if fromCol.NotNull != toCol.NotNull || !g.columnDefaultExprEqual(fromCol.DefaultExpr, toCol.DefaultExpr) {
 					if !fromCol.NotNull && toCol.NotNull {
-						ddl.Append(Update{Table: to.Name, Def: toCol})
+						ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
 					}
-					ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+					ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
 				}
-				if !reflect.DeepEqual(fromCol.Options.AllowCommitTimestamp, toCol.Options.AllowCommitTimestamp) {
-					ddl.Append(AlterColumn{Table: to.Name, Def: toCol, SetOptions: true})
+				if !g.optionsValueEqual(fromCol.Options, toCol.Options, "allow_commit_timestamp") {
+					ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol, SetOptions: true})
 				}
 			} else {
 				if !fromCol.NotNull && toCol.NotNull {
-					ddl.Append(Update{Table: to.Name, Def: toCol})
+					ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
 				}
-				ddl.Append(AlterColumn{Table: to.Name, Def: toCol})
+				ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
 			}
 		} else {
 			ddl.AppendDDL(g.generateDDLForDropAndCreateColumn(from, to, fromCol, toCol))
 		}
 	}
 	for _, fromCol := range from.Columns {
-		if _, exists := g.findColumnByName(to.Columns, fromCol.Name); !exists {
+		if _, exists := g.findColumnByName(to.Columns, fromCol.Name.SQL()); !exists {
 			ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 		}
 	}
 	return ddl
 }
 
-func (g *Generator) generateDDLForDropColumn(table spansql.ID, column spansql.ID) DDL {
+func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint spansql.TableConstraint) bool {
-		fk, ok := constraint.Constraint.(spansql.ForeignKey)
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint *ast.TableConstraint) bool {
+		fk, ok := constraint.Constraint.(*ast.ForeignKey)
 		if !ok {
 			return false
 		}
 		for _, c := range fk.Columns {
-			if column == c {
+			if column.SQL() == c.SQL() {
 				return true
 			}
 		}
 
-		for _, refColumn := range fk.RefColumns {
-			if column == refColumn {
+		for _, refColumn := range fk.ReferenceColumns {
+			if column.SQL() == refColumn.SQL() {
 				return true
 			}
 		}
@@ -477,34 +491,34 @@ func (g *Generator) generateDDLForDropColumn(table spansql.ID, column spansql.ID
 		return false
 	}))
 
-	ddl.Append(spansql.AlterTable{
-		Name:       table,
-		Alteration: spansql.DropColumn{Name: column},
+	ddl.Append(&ast.AlterTable{
+		Name:            table,
+		TableAlteration: &ast.DropColumn{Name: column},
 	})
 
 	return ddl
 }
 
-func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, toCol spansql.ColumnDef) DDL {
+func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, toCol *ast.ColumnDef) DDL {
 	ddl := DDL{}
 
-	indexes := []*spansql.CreateIndex{}
-	for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name) {
-		if !g.isDropedIndex(i.Name) {
+	indexes := []*ast.CreateIndex{}
+	for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name.SQL()) {
+		if !g.isDropedIndex(i.Name.SQL()) {
 			indexes = append(indexes, i)
 		}
 	}
 	for _, i := range indexes {
-		ddl.Append(spansql.DropIndex{Name: i.Name})
+		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
 
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
-	if toCol.NotNull && toCol.Generated == nil && toCol.Default == nil {
-		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: g.setDefault(toCol)}})
-		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AlterColumn{Name: toCol.Name, Alteration: spansql.DropDefault{}}})
+	if toCol.NotNull && toCol.GeneratedExpr == nil && toCol.DefaultExpr == nil {
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefault(toCol)}})
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 	} else {
-		ddl.Append(spansql.AlterTable{Name: to.Name, Alteration: spansql.AddColumn{Def: toCol}})
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
 	}
 	for _, i := range indexes {
 		ddl.Append(i)
@@ -516,17 +530,17 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toIndex := range to.indexes {
-		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
+		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name.SQL())
 
-		if exists && !g.indexEqual(*fromIndex, *toIndex) {
-			ddl.Append(spansql.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
+		if exists && !g.indexEqual(fromIndex, toIndex) {
+			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, fromIndex.Name.SQL())
 		}
 	}
 	for _, fromIndex := range from.indexes {
-		if _, exists := g.findIndexByName(to.indexes, fromIndex.Name); !exists {
-			ddl.Append(spansql.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, fromIndex.Name)
+		if _, exists := g.findIndexByName(to.indexes, fromIndex.Name.SQL()); !exists {
+			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, fromIndex.Name.SQL())
 		}
 	}
 	return ddl
@@ -536,9 +550,9 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toIndex := range to.indexes {
-		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name)
+		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name.SQL())
 
-		if !exists || !g.indexEqual(*fromIndex, *toIndex) {
+		if !exists || !g.indexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
 		}
 	}
@@ -549,14 +563,14 @@ func (g *Generator) generateDDLForCreateChangeStream(from *Database, to *Table) 
 	ddl := DDL{}
 
 	for _, cs := range to.changeStreams {
-		g.willCreateOrAlterChangeStreamIDs[cs.Name] = cs
+		g.willCreateOrAlterChangeStreamIDs[cs.Name.SQL()] = cs
 	}
 	return ddl
 }
-func (g *Generator) generateDDLForDropNamedConstraint(table spansql.ID, constraint spansql.TableConstraint) DDL {
+func (g *Generator) generateDDLForDropNamedConstraint(table *ast.Path, constraint *ast.TableConstraint) DDL {
 	ddl := DDL{}
 
-	if constraint.Name == "" {
+	if constraint.Name == nil {
 		return ddl
 	}
 
@@ -567,15 +581,17 @@ func (g *Generator) generateDDLForDropNamedConstraint(table spansql.ID, constrai
 	}
 	g.droppedConstraints = append(g.droppedConstraints, constraint)
 
-	ddl.Append(spansql.AlterTable{
-		Name:       table,
-		Alteration: spansql.DropConstraint{Name: constraint.Name},
+	ddl.Append(&ast.AlterTable{
+		Name: table,
+		TableAlteration: &ast.DropConstraint{
+			Name: constraint.Name,
+		},
 	})
 
 	return ddl
 }
 
-func (g *Generator) isDropedTable(name spansql.ID) bool {
+func (g *Generator) isDropedTable(name string) bool {
 	for _, t := range g.dropedTable {
 		if t == name {
 			return true
@@ -584,7 +600,7 @@ func (g *Generator) isDropedTable(name spansql.ID) bool {
 	return false
 }
 
-func (g *Generator) isDropedIndex(name spansql.ID) bool {
+func (g *Generator) isDropedIndex(name string) bool {
 	for _, t := range g.dropedIndex {
 		if t == name {
 			return true
@@ -593,7 +609,7 @@ func (g *Generator) isDropedIndex(name spansql.ID) bool {
 	return false
 }
 
-func (g *Generator) isDroppedConstraint(constraint spansql.TableConstraint) bool {
+func (g *Generator) isDroppedConstraint(constraint *ast.TableConstraint) bool {
 	for _, c := range g.droppedConstraints {
 		if g.constraintEqual(c, constraint) {
 			return true
@@ -602,7 +618,7 @@ func (g *Generator) isDroppedConstraint(constraint spansql.TableConstraint) bool
 	return false
 }
 
-func (g *Generator) isDropedChangeStream(name spansql.ID) bool {
+func (g *Generator) isDropedChangeStream(name string) bool {
 	for _, t := range g.dropedChangeStream {
 		if t == name {
 			return true
@@ -611,19 +627,19 @@ func (g *Generator) isDropedChangeStream(name spansql.ID) bool {
 	return false
 }
 func (g *Generator) interleaveEqual(x, y *Table) bool {
-	return reflect.DeepEqual(x.Interleave, y.Interleave)
+	return cmp.Equal(x.Cluster, y.Cluster, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
 func (g *Generator) primaryKeyEqual(x, y *Table) bool {
-	if !reflect.DeepEqual(x.PrimaryKey, y.PrimaryKey) {
+	if !cmp.Equal(x.PrimaryKeys, y.PrimaryKeys, cmpopts.IgnoreTypes(token.Pos(0))) {
 		return false
 	}
-	for _, pk := range y.PrimaryKey {
-		xCol, exists := g.findColumnByName(x.Columns, pk.Column)
+	for _, pk := range y.PrimaryKeys {
+		xCol, exists := g.findColumnByName(x.Columns, pk.Name.SQL())
 		if !exists {
 			return false
 		}
-		yCol, exists := g.findColumnByName(y.Columns, pk.Column)
+		yCol, exists := g.findColumnByName(y.Columns, pk.Name.SQL())
 		if !exists {
 			return false
 		}
@@ -634,72 +650,114 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 	return true
 }
 
-func (g *Generator) columnDefEqual(x, y spansql.ColumnDef) bool {
+func (g *Generator) columnDefEqual(x, y *ast.ColumnDef) bool {
 	return cmp.Equal(x, y,
-		cmp.Comparer(func(x, y spansql.ID) bool {
-			return strings.EqualFold(string(x), string(y))
+		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmp.Comparer(func(x, y *ast.Ident) bool {
+			return strings.EqualFold(x.Name, y.Name)
 		}),
-		cmpopts.IgnoreTypes(spansql.Position{}),
-		cmp.Comparer(func(x, y spansql.TimestampLiteral) bool {
-			return time.Time(x).Equal(time.Time(y))
+		cmp.Comparer(func(x, y *ast.TimestampLiteral) bool {
+			return x.Value.SQL() == y.Value.SQL()
 		}),
 	)
 }
 
-func (g *Generator) columnTypeEqual(x, y spansql.ColumnDef) bool {
-	return x.Type.Base == y.Type.Base && x.Type.Array == y.Type.Array
+func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
+	return cmp.Equal(x.Type, y.Type,
+		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmp.Comparer(func(x, y *ast.SizedSchemaType) bool {
+			return x.Name == y.Name
+		}),
+	)
 }
 
-func (g *Generator) constraintEqual(x, y spansql.TableConstraint) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
-func (g *Generator) indexEqual(x, y spansql.CreateIndex) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+func (g *Generator) indexEqual(x, y *ast.CreateIndex) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
-func (g *Generator) watchEqual(x, y []spansql.WatchDef) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(spansql.Position{}))
+func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
-func (g *Generator) allowNull(col spansql.ColumnDef) spansql.ColumnDef {
-	col.NotNull = false
+func (g *Generator) columnDefaultExprEqual(x, y *ast.ColumnDefaultExpr) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func (g *Generator) createRowDeletionPolicyEqual(x, y *ast.CreateRowDeletionPolicy) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func (g *Generator) optionsEqual(x, y *ast.Options) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func (g *Generator) optionsValueEqual(x, y *ast.Options, name string) bool {
+	xv := optionsValueFromName(x, name)
+	yv := optionsValueFromName(y, name)
+	return cmp.Equal(xv, yv, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func optionsValueFromName(options *ast.Options, name string) *ast.Expr {
+	if options == nil {
+		return nil
+	}
+	for _, o := range options.Records {
+		if o.Name.SQL() == name {
+			return &o.Value
+		}
+	}
+	return nil
+}
+
+func defaultByuScalarTypeName(t ast.ScalarTypeName) ast.Expr {
+	switch t {
+	case ast.BoolTypeName:
+		return &ast.BoolLiteral{Value: false}
+	case ast.Int64TypeName:
+		return &ast.IntLiteral{Value: "0"}
+	case ast.Float32TypeName, ast.Float64TypeName:
+		return &ast.FloatLiteral{Value: "0"}
+	case ast.StringTypeName:
+		return &ast.StringLiteral{Value: ""}
+	case ast.BytesTypeName:
+		return &ast.BytesLiteral{Value: nil}
+	case ast.DateTypeName:
+		return &ast.DateLiteral{Value: &ast.StringLiteral{Value: "0001-01-01"}}
+	case ast.TimestampTypeName:
+		return &ast.TimestampLiteral{Value: &ast.StringLiteral{Value: "0001-01-01T00:00:00Z"}}
+	case ast.NumericTypeName:
+		return &ast.NumericLiteral{Value: &ast.StringLiteral{Value: "0"}}
+	case ast.JSONTypeName:
+		return &ast.JSONLiteral{Value: &ast.StringLiteral{Value: "{}"}}
+	case ast.TokenListTypeName:
+		return &ast.BytesLiteral{Value: nil}
+	default:
+		panic("not implemented")
+	}
+}
+
+func (g *Generator) setDefault(col *ast.ColumnDef) *ast.ColumnDef {
+	switch t := col.Type.(type) {
+	case *ast.ArraySchemaType:
+		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
+	case *ast.ScalarSchemaType:
+		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+	case *ast.SizedSchemaType:
+		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+	case *ast.NamedType:
+		panic("not implemented")
+	}
+
 	return col
 }
 
-func (g *Generator) setDefault(col spansql.ColumnDef) spansql.ColumnDef {
-	if col.Type.Array {
-		col.Default = spansql.Array{}
-		return col
-	}
-
-	switch col.Type.Base {
-	case spansql.Bool:
-		col.Default = spansql.False
-	case spansql.Int64:
-		col.Default = spansql.IntegerLiteral(0)
-	case spansql.Float64:
-		col.Default = spansql.FloatLiteral(0)
-	case spansql.Numeric:
-		col.Default = spansql.FloatLiteral(0)
-	case spansql.String:
-		col.Default = spansql.StringLiteral("")
-	case spansql.Bytes:
-		col.Default = spansql.BytesLiteral("")
-	case spansql.Date:
-		col.Default = spansql.DateLiteral{Year: 1, Month: 1, Day: 1}
-	case spansql.Timestamp:
-		col.Default = spansql.TimestampLiteral(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC))
-	case spansql.JSON:
-		col.Default = spansql.JSONLiteral("{}")
-	}
-
-	return col
-}
-
-func (g *Generator) findTableByName(tables []*Table, name spansql.ID) (table *Table, exists bool) {
+func (g *Generator) findTableByName(tables []*Table, name string) (table *Table, exists bool) {
 	for _, t := range tables {
-		if strings.EqualFold(string(t.Name), string(name)) {
+		if strings.EqualFold(t.Name.SQL(), name) {
 			table = t
 			exists = true
 			break
@@ -708,9 +766,9 @@ func (g *Generator) findTableByName(tables []*Table, name spansql.ID) (table *Ta
 	return
 }
 
-func (g *Generator) findColumnByName(cols []spansql.ColumnDef, name spansql.ID) (col spansql.ColumnDef, exists bool) {
+func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (col *ast.ColumnDef, exists bool) {
 	for _, c := range cols {
-		if strings.EqualFold(string(c.Name), string(name)) {
+		if strings.EqualFold(c.Name.SQL(), name) {
 			col = c
 			exists = true
 			break
@@ -719,14 +777,14 @@ func (g *Generator) findColumnByName(cols []spansql.ColumnDef, name spansql.ID) 
 	return
 }
 
-func (g *Generator) findNamedConstraint(constraints []spansql.TableConstraint, name spansql.ID) (con spansql.TableConstraint, exists bool) {
+func (g *Generator) findNamedConstraint(constraints []*ast.TableConstraint, name string) (con *ast.TableConstraint, exists bool) {
 	if name == "" {
 		exists = false
 		return
 	}
 
 	for _, c := range constraints {
-		if c.Name == name {
+		if c.Name.SQL() == name {
 			con = c
 			exists = true
 			break
@@ -735,7 +793,7 @@ func (g *Generator) findNamedConstraint(constraints []spansql.TableConstraint, n
 	return
 }
 
-func (g *Generator) findUnnamedConstraint(constraints []spansql.TableConstraint, item spansql.TableConstraint) (con spansql.TableConstraint, exists bool) {
+func (g *Generator) findUnnamedConstraint(constraints []*ast.TableConstraint, item *ast.TableConstraint) (con *ast.TableConstraint, exists bool) {
 	for _, c := range constraints {
 		if g.constraintEqual(c, item) {
 			con = c
@@ -746,22 +804,20 @@ func (g *Generator) findUnnamedConstraint(constraints []spansql.TableConstraint,
 	return
 }
 
-func (g *Generator) findIndexByName(indexes []*spansql.CreateIndex, name spansql.ID) (index *spansql.CreateIndex, exists bool) {
+func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (index *ast.CreateIndex, exists bool) {
 	for _, i := range indexes {
-		if i.Name == name {
-			index = i
-			exists = true
-			break
+		if i.Name.SQL() == name {
+			return i, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findIndexByColumn(indexes []*spansql.CreateIndex, column spansql.ID) []*spansql.CreateIndex {
-	result := []*spansql.CreateIndex{}
+func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string) []*ast.CreateIndex {
+	result := []*ast.CreateIndex{}
 	for _, i := range indexes {
-		for _, c := range i.Columns {
-			if c.Column == column {
+		for _, c := range i.Keys {
+			if c.Name.SQL() == column {
 				result = append(result, i)
 				break
 			}
@@ -770,11 +826,11 @@ func (g *Generator) findIndexByColumn(indexes []*spansql.CreateIndex, column spa
 	return result
 }
 
-func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicate func(spansql.TableConstraint) bool) DDL {
+func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicate func(constraint *ast.TableConstraint) bool) DDL {
 	ddl := DDL{}
 
 	for _, table := range g.from.tables {
-		for _, constraint := range table.Constraints {
+		for _, constraint := range table.TableConstraints {
 			if predicate(constraint) {
 				ddl.AppendDDL(g.generateDDLForDropNamedConstraint(table.Name, constraint))
 			}
@@ -784,9 +840,9 @@ func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicat
 	return ddl
 }
 
-func (g *Generator) findChangeStreamByName(database *Database, name spansql.ID) (changeStream *ChangeStream, exists bool) {
+func (g *Generator) findChangeStreamByName(database *Database, name string) (changeStream *ChangeStream, exists bool) {
 	for _, cs := range database.changeStreams {
-		if cs.Name == name {
+		if cs.Name.SQL() == name {
 			changeStream = cs
 			exists = true
 			break
@@ -794,7 +850,7 @@ func (g *Generator) findChangeStreamByName(database *Database, name spansql.ID) 
 	}
 	for _, table := range database.tables {
 		for _, cs := range table.changeStreams {
-			if cs.Name == name {
+			if cs.Name.SQL() == name {
 				changeStream = cs
 				exists = true
 				break
@@ -806,48 +862,57 @@ func (g *Generator) findChangeStreamByName(database *Database, name spansql.ID) 
 
 func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL {
 	ddl := DDL{}
-	defaultRetentionPeriod := "1d"
-	defaultValueCaptureType := "OLD_AND_NEW_VALUES"
+	fromType, toType := from.Type(), to.Type()
 	switch {
-	case from.WatchAllTables && to.WatchTable():
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
-	case from.WatchAllTables && to.WatchNone():
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.DropChangeStreamWatch{}})
-	case from.WatchTable() && to.WatchAllTables:
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{WatchAllTables: to.WatchAllTables}})
-	case from.WatchTable() && to.WatchNone():
-		ddl.Append(spansql.DropChangeStream{Name: to.Name})
-		ddl.Append(spansql.CreateChangeStream{Name: to.Name})
-	case from.WatchTable() && to.WatchTable():
-		if !g.watchEqual(from.Watch, to.Watch) {
-			ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
+	case fromType == ChangeStreamTypeAll && toType == ChangeStreamTypeTables:
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
+	case fromType == ChangeStreamTypeAll && toType == ChangeStreamTypeNone:
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamDropForAll{}})
+	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeAll:
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
+	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeNone:
+		ddl.Append(&ast.DropChangeStream{Name: to.Name})
+		ddl.Append(&ast.CreateChangeStream{Name: to.Name})
+	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeTables:
+		if !g.changeStreamForEqual(from.For, to.For) {
+			ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
 		}
-	case from.WatchNone() && to.WatchAllTables:
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{WatchAllTables: to.WatchAllTables}})
-	case from.WatchNone() && to.WatchTable():
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterWatch{Watch: to.Watch}})
+	case fromType == ChangeStreamTypeNone && toType == ChangeStreamTypeAll:
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
+	case fromType == ChangeStreamTypeNone && toType == ChangeStreamTypeTables:
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
 	}
-	if !reflect.DeepEqual(from.Options, to.Options) {
-		if from.Options.RetentionPeriod != nil && to.Options.RetentionPeriod == nil {
-			to.Options.RetentionPeriod = &defaultRetentionPeriod
+	if !g.optionsEqual(from.Options, to.Options) {
+		options := to.Options
+		if options == nil {
+			options = &ast.Options{}
 		}
-		if from.Options.ValueCaptureType != nil && to.Options.ValueCaptureType == nil {
-			to.Options.ValueCaptureType = &defaultValueCaptureType
+		if optionsValueFromName(from.Options, "retention_period") != nil && optionsValueFromName(to.Options, "retention_period") == nil {
+			options.Records = append(options.Records, &ast.OptionsDef{
+				Name:  &ast.Ident{Name: "retention_period"},
+				Value: &ast.StringLiteral{Value: "1d"},
+			})
 		}
-		ddl.Append(spansql.AlterChangeStream{Name: to.Name, Alteration: spansql.AlterChangeStreamOptions{Options: to.Options}})
+		if optionsValueFromName(from.Options, "value_capture_type") != nil && optionsValueFromName(to.Options, "value_capture_type") == nil {
+			options.Records = append(options.Records, &ast.OptionsDef{
+				Name:  &ast.Ident{Name: "value_capture_type"},
+				Value: &ast.StringLiteral{Value: "OLD_AND_NEW_VALUES"},
+			})
+		}
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: options}})
 	}
 	return ddl
 }
 
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
 	ddl := DDL{}
-	ddl.Append(spansql.DropChangeStream{Name: changeStream.Name})
+	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
 	return ddl
 }
 
-func (g *Generator) findViewByName(views []*View, name spansql.ID) (view *View, exists bool) {
+func (g *Generator) findViewByName(views []*View, name string) (view *View, exists bool) {
 	for _, v := range views {
-		if v.Name == name {
+		if v.Name.SQL() == name {
 			view = v
 			exists = true
 			break
@@ -858,12 +923,12 @@ func (g *Generator) findViewByName(views []*View, name spansql.ID) (view *View, 
 
 func (g *Generator) generateDDLForReplaceView(view *View) DDL {
 	ddl := DDL{}
-	ddl.Append(spansql.CreateView{Name: view.Name, Position: view.Position, Query: view.Query, OrReplace: true})
+	ddl.Append(&ast.CreateView{Name: view.Name, Query: view.Query, SecurityType: ast.SecurityTypeInvoker, OrReplace: true})
 	return ddl
 }
 
 func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
-	ddl.Append(spansql.DropView{Name: view.Name})
+	ddl.Append(&ast.DropView{Name: view.Name})
 	return ddl
 }
