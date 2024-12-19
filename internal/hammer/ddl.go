@@ -104,9 +104,9 @@ func (u Update) defaultValue() string {
 	case *ast.ArraySchemaType:
 		return "[]"
 	case *ast.ScalarSchemaType:
-		return defaultByuScalarTypeName(t.Name).SQL()
+		return defaultByScalarTypeName(t.Name).SQL()
 	case *ast.SizedSchemaType:
-		return defaultByuScalarTypeName(t.Name).SQL()
+		return defaultByScalarTypeName(t.Name).SQL()
 	default:
 		return "''"
 	}

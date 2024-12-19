@@ -724,7 +724,7 @@ func optionsValueFromName(options *ast.Options, name string) *ast.Expr {
 	return nil
 }
 
-func defaultByuScalarTypeName(t ast.ScalarTypeName) ast.Expr {
+func defaultByScalarTypeName(t ast.ScalarTypeName) ast.Expr {
 	switch t {
 	case ast.BoolTypeName:
 		return &ast.BoolLiteral{Value: false}
@@ -756,9 +756,9 @@ func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	case *ast.ArraySchemaType:
 		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
 	case *ast.ScalarSchemaType:
-		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
 	case *ast.SizedSchemaType:
-		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
 	case *ast.NamedType:
 		panic("not implemented")
 	}
