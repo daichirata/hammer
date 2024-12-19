@@ -66,19 +66,15 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			alterDatabaseOptions = stmt
 			options = stmt.Options
 		case *ast.CreateChangeStream:
-			if stmt.For == nil {
-				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
-			} else {
-				switch forType := stmt.For.(type) {
-				case *ast.ChangeStreamForTables:
-					for _, table := range forType.Tables {
-						if t, ok := m[table.TableName.SQL()]; ok {
-							t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
-						}
+			switch forType := stmt.For.(type) {
+			case *ast.ChangeStreamForTables:
+				for _, table := range forType.Tables {
+					if t, ok := m[table.TableName.SQL()]; ok {
+						t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
 					}
-				default:
-					changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
 				}
+			default:
+				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
 			}
 		case *ast.CreateView:
 			v := &View{CreateView: stmt}
