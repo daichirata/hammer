@@ -61,7 +61,9 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 `,
 			expected: []string{
-				`CREATE TABLE t2 (t2_1 INT64 NOT NULL) PRIMARY KEY (t2_1)`,
+				`CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL
+) PRIMARY KEY (t2_1)`,
 			},
 		},
 		{
@@ -476,7 +478,7 @@ CREATE INDEX idx_t1_1 ON t1(t1_2);
 CREATE INDEX idx_t1_2 ON t1(t1_3);
 `,
 			expected: []string{
-				`CREATE INDEX idx_t1_2 ON t1 (t1_3)`,
+				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
 		{
@@ -530,7 +532,7 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`ALTER TABLE t1 DROP COLUMN t1_3`,
 				`ALTER TABLE t1 ADD COLUMN t1_3 INT64 NOT NULL DEFAULT (0)`,
 				`ALTER TABLE t1 ALTER COLUMN t1_3 DROP DEFAULT`,
-				`CREATE INDEX idx_t1_2 ON t1 (t1_3)`,
+				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
 			},
 		},
 		{
@@ -581,11 +583,23 @@ CREATE INDEX idx_t3 ON t3(t3_1);
 				`DROP INDEX idx_t3`,
 				`DROP TABLE t3`,
 				`DROP TABLE t1`,
-				`CREATE TABLE t1 (t1_1 STRING(36) NOT NULL) PRIMARY KEY (t1_1)`,
-				`CREATE TABLE t2 (t1_1 INT64 NOT NULL, t2_1 INT64 NOT NULL, t2_2 INT64 NOT NULL, t2_3 INT64 NOT NULL) PRIMARY KEY (t1_1, t2_1), INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
-				`CREATE INDEX idx_t2 ON t2 (t2_1)`,
-				`CREATE TABLE t3 (t1_1 INT64 NOT NULL, t3_1 INT64 NOT NULL) PRIMARY KEY (t1_1, t3_1), INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
-				`CREATE INDEX idx_t3 ON t3 (t3_1)`,
+				`CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL
+) PRIMARY KEY (t1_1)`,
+				`CREATE TABLE t2 (
+  t1_1 INT64 NOT NULL,
+  t2_1 INT64 NOT NULL,
+  t2_2 INT64 NOT NULL,
+  t2_3 INT64 NOT NULL
+) PRIMARY KEY (t1_1, t2_1),
+  INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
+				`CREATE INDEX idx_t2 ON t2(t2_1)`,
+				`CREATE TABLE t3 (
+  t1_1 INT64 NOT NULL,
+  t3_1 INT64 NOT NULL
+) PRIMARY KEY (t1_1, t3_1),
+  INTERLEAVE IN PARENT t1 ON DELETE NO ACTION`,
+				`CREATE INDEX idx_t3 ON t3(t3_1)`,
 			},
 		},
 		{
@@ -599,7 +613,10 @@ CREATE TABLE t2 (
 ) PRIMARY KEY(t2_1);
 		`,
 			expected: []string{
-				`CREATE TABLE t2 (t2_1 INT64 NOT NULL, CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)) PRIMARY KEY (t2_1)`,
+				`CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+  CONSTRAINT FK_t2_1 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)
+) PRIMARY KEY (t2_1)`,
 			},
 		},
 		{
@@ -894,7 +911,10 @@ CREATE TABLE t2 (
 			expected: []string{
 				`ALTER TABLE t2 DROP CONSTRAINT FK_t2`,
 				`DROP TABLE t1`,
-				`CREATE TABLE t1 (t1_1 INT64, t1_2 INT64) PRIMARY KEY (t1_2)`,
+				`CREATE TABLE t1 (
+  t1_1 INT64,
+  t1_2 INT64
+) PRIMARY KEY (t1_2)`,
 				`ALTER TABLE t2 ADD CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1)`,
 			},
 		},
@@ -947,7 +967,10 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1), ROW DELETION POLICY (OLDER_THAN(t1_2, INTERVAL 30 DAY));
 		`,
 			expected: []string{
-				`CREATE TABLE t1 (t1_1 INT64 NOT NULL, t1_2 TIMESTAMP NOT NULL) PRIMARY KEY (t1_1), ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
+				`CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 TIMESTAMP NOT NULL
+) PRIMARY KEY (t1_1), ROW DELETION POLICY ( OLDER_THAN ( t1_2, INTERVAL 30 DAY ))`,
 			},
 		},
 		{
@@ -1147,8 +1170,12 @@ CREATE CHANGE STREAM SomeStream FOR Singers(id), Albums;
 `,
 			ignoreAlterDatabase: true,
 			expected: []string{
-				`CREATE TABLE Singers (id INT64 NOT NULL) PRIMARY KEY (id)`,
-				`CREATE TABLE Albums (id INT64 NOT NULL) PRIMARY KEY (id)`,
+				`CREATE TABLE Singers (
+  id INT64 NOT NULL
+) PRIMARY KEY (id)`,
+				`CREATE TABLE Albums (
+  id INT64 NOT NULL
+) PRIMARY KEY (id)`,
 				"ALTER CHANGE STREAM SomeStream SET FOR Singers(id), Albums",
 			},
 		},
@@ -1248,7 +1275,9 @@ CREATE CHANGE STREAM SomeStream FOR Albums;
 `,
 			ignoreAlterDatabase: true,
 			expected: []string{
-				`CREATE TABLE Albums (id INT64 NOT NULL) PRIMARY KEY (id)`,
+				`CREATE TABLE Albums (
+  id INT64 NOT NULL
+) PRIMARY KEY (id)`,
 				"DROP CHANGE STREAM SomeStream",
 				"DROP TABLE Singers",
 				`CREATE CHANGE STREAM SomeStream FOR Albums`,

@@ -80,8 +80,8 @@ func (a AlterColumn) SQL() string {
 	if a.Def.NotNull {
 		str += " NOT NULL"
 	}
-	if a.Def.DefaultExpr != nil {
-		str += " " + a.Def.DefaultExpr.SQL()
+	if a.Def.DefaultSemantics != nil {
+		str += " " + a.Def.DefaultSemantics.SQL()
 	}
 
 	return str
@@ -93,8 +93,11 @@ type Update struct {
 }
 
 func (u Update) defaultValue() string {
-	if u.Def.DefaultExpr != nil {
-		return u.Def.DefaultExpr.Expr.SQL()
+	if u.Def.DefaultSemantics != nil {
+		switch t := u.Def.DefaultSemantics.(type) {
+		case *ast.ColumnDefaultExpr:
+			return t.Expr.SQL()
+		}
 	}
 
 	switch t := u.Def.Type.(type) {

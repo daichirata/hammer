@@ -426,8 +426,8 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name.SQL())
 
 		if !exists {
-			if toCol.NotNull && toCol.GeneratedExpr == nil && toCol.DefaultExpr == nil {
-				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefault(toCol)}})
+			if toCol.NotNull && toCol.DefaultSemantics == nil {
+				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefaultSemantics(toCol)}})
 				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 			} else {
 				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
@@ -439,9 +439,20 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		if g.columnTypeEqual(fromCol, toCol) && fromCol.GeneratedExpr == nil && toCol.GeneratedExpr == nil {
+		requireDropAndCreateByDefault := func(d ast.ColumnDefaultSemantics) bool {
+			if d == nil {
+				return false
+			}
+			switch d.(type) {
+			case *ast.ColumnDefaultExpr:
+				return false
+			default:
+				return true
+			}
+		}
+		if g.columnTypeEqual(fromCol, toCol) && !requireDropAndCreateByDefault(fromCol.DefaultSemantics) && !requireDropAndCreateByDefault(toCol.DefaultSemantics) {
 			if st, ok := fromCol.Type.(*ast.ScalarSchemaType); ok && st.Name == ast.TimestampTypeName {
-				if fromCol.NotNull != toCol.NotNull || !g.columnDefaultExprEqual(fromCol.DefaultExpr, toCol.DefaultExpr) {
+				if fromCol.NotNull != toCol.NotNull || !g.columnDefaultExprEqual(fromCol.DefaultSemantics, toCol.DefaultSemantics) {
 					if !fromCol.NotNull && toCol.NotNull {
 						ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
 					}
@@ -514,8 +525,8 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
-	if toCol.NotNull && toCol.GeneratedExpr == nil && toCol.DefaultExpr == nil {
-		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefault(toCol)}})
+	if toCol.NotNull && toCol.DefaultSemantics == nil {
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefaultSemantics(toCol)}})
 		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 	} else {
 		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
@@ -683,7 +694,7 @@ func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
 	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
-func (g *Generator) columnDefaultExprEqual(x, y *ast.ColumnDefaultExpr) bool {
+func (g *Generator) columnDefaultExprEqual(x, y ast.ColumnDefaultSemantics) bool {
 	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
@@ -740,14 +751,14 @@ func defaultByuScalarTypeName(t ast.ScalarTypeName) ast.Expr {
 	}
 }
 
-func (g *Generator) setDefault(col *ast.ColumnDef) *ast.ColumnDef {
+func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	switch t := col.Type.(type) {
 	case *ast.ArraySchemaType:
-		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
+		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
 	case *ast.ScalarSchemaType:
-		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
 	case *ast.SizedSchemaType:
-		col.DefaultExpr = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
+		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByuScalarTypeName(t.Name)}
 	case *ast.NamedType:
 		panic("not implemented")
 	}

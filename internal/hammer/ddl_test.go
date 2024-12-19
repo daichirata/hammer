@@ -45,7 +45,10 @@ CREATE CHANGE STREAM LongerDataRetention
 );
 `,
 			option: &hammer.DDLOption{},
-			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL
+) PRIMARY KEY (UserID);
 CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS (retention_period = "36h");`,
 		},
 		{
@@ -63,7 +66,10 @@ CREATE CHANGE STREAM LongerDataRetention
 			option: &hammer.DDLOption{
 				IgnoreChangeStreams: true,
 			},
-			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);`,
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL
+) PRIMARY KEY (UserID);`,
 		},
 		{
 			name: "Ignore change streams with small cases",
@@ -80,7 +86,10 @@ create change stream LongerDataRetention
 			option: &hammer.DDLOption{
 				IgnoreChangeStreams: true,
 			},
-			want: `CREATE TABLE Users (UserID STRING(10) NOT NULL, Name STRING(10) NOT NULL) PRIMARY KEY (UserID);`,
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL
+) PRIMARY KEY (UserID);`,
 		},
 	}
 	for _, tt := range tests {
@@ -149,11 +158,11 @@ func TestAlterColumn_SQL(t *testing.T) {
 			s: true,
 		},
 		{
-			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultSemantics: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 DEFAULT (1)",
 		},
 		{
-			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, NotNull: true, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, NotNull: true, DefaultSemantics: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 NOT NULL DEFAULT (1)",
 		},
 	}
@@ -212,7 +221,7 @@ func TestUpdate_SQL(t *testing.T) {
 			s: `UPDATE test_table SET json = JSON "{}" WHERE json IS NULL`,
 		},
 		{
-			d: &ast.ColumnDef{Name: newIdent("default"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultExpr: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
+			d: &ast.ColumnDef{Name: newIdent("default"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, DefaultSemantics: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			s: "UPDATE test_table SET `default` = 1 WHERE `default` IS NULL",
 		},
 	}
