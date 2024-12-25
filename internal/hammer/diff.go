@@ -80,7 +80,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			v := &View{CreateView: stmt}
 			views = append(views, v)
 		default:
-			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt)
+			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt.SQL())
 		}
 	}
 	for _, t := range tables {
