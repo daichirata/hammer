@@ -44,15 +44,15 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *ast.CreateTable:
 			t := &Table{CreateTable: stmt}
 			tables = append(tables, t)
-			m[stmt.Name.SQL()] = t
+			m[identsToComparable(stmt.Name.Idents...)] = t
 		case *ast.CreateIndex:
-			if t, ok := m[stmt.TableName.SQL()]; ok {
+			if t, ok := m[identsToComparable(stmt.TableName.Idents...)]; ok {
 				t.indexes = append(t.indexes, stmt)
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
 		case *ast.AlterTable:
-			t, ok := m[stmt.Name.SQL()]
+			t, ok := m[identsToComparable(stmt.Name.Idents...)]
 			if !ok {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
@@ -69,7 +69,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			switch forType := stmt.For.(type) {
 			case *ast.ChangeStreamForTables:
 				for _, table := range forType.Tables {
-					if t, ok := m[table.TableName.SQL()]; ok {
+					if t, ok := m[identsToComparable(table.TableName)]; ok {
 						t.changeStreams = append(t.changeStreams, &ChangeStream{CreateChangeStream: stmt})
 					}
 				}
@@ -85,7 +85,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 	}
 	for _, t := range tables {
 		if i := t.Cluster; i != nil {
-			if p, ok := m[i.TableName.SQL()]; ok {
+			if p, ok := m[identsToComparable(i.TableName.Idents...)]; ok {
 				p.children = append(p.children, t)
 			} else {
 				return nil, fmt.Errorf("parent ddl %s not found", i.TableName.SQL())
@@ -160,14 +160,14 @@ func (g *Generator) GenerateDDL() DDL {
 
 	// for alter table
 	for _, toTable := range g.to.tables {
-		fromTable, exists := g.findTableByName(g.from.tables, toTable.Name.SQL())
+		fromTable, exists := g.findTableByName(g.from.tables, identsToComparable(toTable.Name.Idents...))
 
 		if !exists {
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
 
-		if g.isDropedTable(toTable.Name.SQL()) {
+		if g.isDropedTable(identsToComparable(toTable.Name.Idents...)) {
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
@@ -192,13 +192,13 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
 	}
 	for _, fromTable := range g.from.tables {
-		if _, exists := g.findTableByName(g.to.tables, fromTable.Name.SQL()); !exists {
+		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
 		}
 	}
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
-		fromChangeStream, exists := g.findChangeStreamByName(g.from, toChangeStream.Name.SQL())
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(toChangeStream.Name))
 		if !exists {
 			ddl.Append(toChangeStream)
 			continue
@@ -206,13 +206,13 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, toChangeStream))
 	}
 	for _, fromChangeStream := range g.from.changeStreams {
-		if _, exists := g.findChangeStreamByName(g.to, fromChangeStream.Name.SQL()); !exists {
+		if _, exists := g.findChangeStreamByName(g.to, identsToComparable(fromChangeStream.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
 		}
 	}
 	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
-		fromChangeStream, exists := g.findChangeStreamByName(g.from, cs.Name.SQL())
-		if !exists || g.isDropedChangeStream(cs.Name.SQL()) {
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(cs.Name))
+		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
 			ddl.Append(cs)
 			continue
 		}
@@ -221,7 +221,7 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	// for views
 	for _, toView := range g.to.views {
-		_, exists := g.findViewByName(g.from.views, toView.Name.SQL())
+		_, exists := g.findViewByName(g.from.views, identsToComparable(toView.Name.Idents...))
 		if !exists {
 			ddl.Append(toView)
 			continue
@@ -229,7 +229,7 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
 	}
 	for _, fromView := range g.from.views {
-		if _, exists := g.findViewByName(g.to.views, fromView.Name.SQL()); !exists {
+		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropView(fromView))
 		}
 	}
@@ -242,12 +242,12 @@ func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
 	optionsTo := make(map[string]string)
 	if g.from.options != nil {
 		for _, o := range g.from.options.Records {
-			optionsFrom[o.Name.SQL()] = o.Value.SQL()
+			optionsFrom[o.Name.Name] = o.Value.SQL()
 		}
 	}
 	if g.to.options != nil {
 		for _, o := range g.to.options.Records {
-			optionsTo[o.Name.SQL()] = o.Value.SQL()
+			optionsTo[o.Name.Name] = o.Value.SQL()
 		}
 	}
 	if reflect.DeepEqual(optionsFrom, optionsTo) {
@@ -280,7 +280,7 @@ func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
 	dbopts := g.to.alterDatabaseOptions.Options
 	if g.from.options != nil {
 		for _, r := range g.from.options.Records {
-			name := r.Name.SQL()
+			name := r.Name.Name
 			if _, ok := optionsTo[name]; ok {
 				continue
 			}
@@ -306,7 +306,7 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 		ddl.Append(i)
 	}
 	for _, cs := range table.changeStreams {
-		g.willCreateOrAlterChangeStreamIDs[cs.Name.SQL()] = cs
+		g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)] = cs
 	}
 	return ddl
 }
@@ -314,7 +314,7 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL {
 	ddl := DDL{}
 
-	if g.isDropedTable(table.Name.SQL()) {
+	if g.isDropedTable(identsToComparable(table.Name.Idents...)) {
 		return ddl
 	}
 	for _, t := range table.children {
@@ -324,9 +324,9 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
 	for _, cs := range table.changeStreams {
-		if !g.isDropedChangeStream(cs.Name.SQL()) {
+		if !g.isDropedChangeStream(identsToComparable(cs.Name)) {
 			ddl.Append(&ast.DropChangeStream{Name: cs.Name})
-			g.dropedChangeStream = append(g.dropedChangeStream, cs.Name.SQL())
+			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
 		}
 	}
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint *ast.TableConstraint) bool {
@@ -334,10 +334,10 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		if !ok {
 			return false
 		}
-		return fk.ReferenceTable.SQL() == table.Name.SQL()
+		return identsToComparable(fk.ReferenceTable.Idents...) == identsToComparable(table.Name.Idents...)
 	}))
 	ddl.Append(&ast.DropTable{Name: table.Name})
-	g.dropedTable = append(g.dropedTable, table.Name.SQL())
+	g.dropedTable = append(g.dropedTable, identsToComparable(table.Name.Idents...))
 	return ddl
 }
 
@@ -355,7 +355,7 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 			continue
 		}
 
-		fromConstraint, exists := g.findNamedConstraint(from.TableConstraints, toConstraint.Name.SQL())
+		fromConstraint, exists := g.findNamedConstraint(from.TableConstraints, identsToComparable(toConstraint.Name))
 
 		if !exists || g.isDroppedConstraint(toConstraint) {
 			ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint}})
@@ -378,7 +378,7 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 			continue
 		}
 
-		if _, exists := g.findNamedConstraint(to.TableConstraints, fromConstraint.Name.SQL()); !exists {
+		if _, exists := g.findNamedConstraint(to.TableConstraints, identsToComparable(fromConstraint.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropNamedConstraint(from.Name, fromConstraint))
 		}
 	}
@@ -419,7 +419,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toCol := range to.Columns {
-		fromCol, exists := g.findColumnByName(from.Columns, toCol.Name.SQL())
+		fromCol, exists := g.findColumnByName(from.Columns, identsToComparable(toCol.Name))
 
 		if !exists {
 			if toCol.NotNull && toCol.DefaultSemantics == nil {
@@ -468,7 +468,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		}
 	}
 	for _, fromCol := range from.Columns {
-		if _, exists := g.findColumnByName(to.Columns, fromCol.Name.SQL()); !exists {
+		if _, exists := g.findColumnByName(to.Columns, identsToComparable(fromCol.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 		}
 	}
@@ -484,13 +484,13 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 			return false
 		}
 		for _, c := range fk.Columns {
-			if column.SQL() == c.SQL() {
+			if identsToComparable(column) == identsToComparable(c) {
 				return true
 			}
 		}
 
 		for _, refColumn := range fk.ReferenceColumns {
-			if column.SQL() == refColumn.SQL() {
+			if identsToComparable(column) == identsToComparable(refColumn) {
 				return true
 			}
 		}
@@ -510,8 +510,8 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 	ddl := DDL{}
 
 	indexes := []*ast.CreateIndex{}
-	for _, i := range g.findIndexByColumn(from.indexes, fromCol.Name.SQL()) {
-		if !g.isDropedIndex(i.Name.SQL()) {
+	for _, i := range g.findIndexByColumn(from.indexes, identsToComparable(fromCol.Name)) {
+		if !g.isDropedIndex(identsToComparable(i.Name.Idents...)) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -537,17 +537,17 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toIndex := range to.indexes {
-		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name.SQL())
+		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
 
 		if exists && !g.indexEqual(fromIndex, toIndex) {
 			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, fromIndex.Name.SQL())
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	for _, fromIndex := range from.indexes {
-		if _, exists := g.findIndexByName(to.indexes, fromIndex.Name.SQL()); !exists {
+		if _, exists := g.findIndexByName(to.indexes, identsToComparable(fromIndex.Name.Idents...)); !exists {
 			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, fromIndex.Name.SQL())
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	return ddl
@@ -557,7 +557,7 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	ddl := DDL{}
 
 	for _, toIndex := range to.indexes {
-		fromIndex, exists := g.findIndexByName(from.indexes, toIndex.Name.SQL())
+		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
 
 		if !exists || !g.indexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
@@ -570,7 +570,7 @@ func (g *Generator) generateDDLForCreateChangeStream(from *Database, to *Table) 
 	ddl := DDL{}
 
 	for _, cs := range to.changeStreams {
-		g.willCreateOrAlterChangeStreamIDs[cs.Name.SQL()] = cs
+		g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)] = cs
 	}
 	return ddl
 }
@@ -642,11 +642,11 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 		return false
 	}
 	for _, pk := range y.PrimaryKeys {
-		xCol, exists := g.findColumnByName(x.Columns, pk.Name.SQL())
+		xCol, exists := g.findColumnByName(x.Columns, identsToComparable(pk.Name))
 		if !exists {
 			return false
 		}
-		yCol, exists := g.findColumnByName(y.Columns, pk.Name.SQL())
+		yCol, exists := g.findColumnByName(y.Columns, identsToComparable(pk.Name))
 		if !exists {
 			return false
 		}
@@ -713,7 +713,7 @@ func optionsValueFromName(options *ast.Options, name string) *ast.Expr {
 		return nil
 	}
 	for _, o := range options.Records {
-		if o.Name.SQL() == name {
+		if o.Name.Name == name {
 			return &o.Value
 		}
 	}
@@ -747,6 +747,17 @@ func defaultByScalarTypeName(t ast.ScalarTypeName) ast.Expr {
 	}
 }
 
+func identsToComparable(is ...*ast.Ident) string {
+	var b strings.Builder
+	for i, n := range is {
+		if i != 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(n.Name)
+	}
+	return b.String()
+}
+
 func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	switch t := col.Type.(type) {
 	case *ast.ArraySchemaType:
@@ -764,7 +775,7 @@ func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 
 func (g *Generator) findTableByName(tables []*Table, name string) (table *Table, exists bool) {
 	for _, t := range tables {
-		if strings.EqualFold(t.Name.SQL(), name) {
+		if strings.EqualFold(identsToComparable(t.Name.Idents...), name) {
 			table = t
 			exists = true
 			break
@@ -775,7 +786,7 @@ func (g *Generator) findTableByName(tables []*Table, name string) (table *Table,
 
 func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (col *ast.ColumnDef, exists bool) {
 	for _, c := range cols {
-		if strings.EqualFold(c.Name.SQL(), name) {
+		if strings.EqualFold(identsToComparable(c.Name), name) {
 			col = c
 			exists = true
 			break
@@ -791,7 +802,7 @@ func (g *Generator) findNamedConstraint(constraints []*ast.TableConstraint, name
 	}
 
 	for _, c := range constraints {
-		if c.Name.SQL() == name {
+		if identsToComparable(c.Name) == name {
 			con = c
 			exists = true
 			break
@@ -813,7 +824,7 @@ func (g *Generator) findUnnamedConstraint(constraints []*ast.TableConstraint, it
 
 func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (index *ast.CreateIndex, exists bool) {
 	for _, i := range indexes {
-		if i.Name.SQL() == name {
+		if identsToComparable(i.Name.Idents...) == name {
 			return i, true
 		}
 	}
@@ -824,7 +835,7 @@ func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string)
 	result := []*ast.CreateIndex{}
 	for _, i := range indexes {
 		for _, c := range i.Keys {
-			if c.Name.SQL() == column {
+			if identsToComparable(c.Name) == column {
 				result = append(result, i)
 				break
 			}
@@ -849,7 +860,7 @@ func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicat
 
 func (g *Generator) findChangeStreamByName(database *Database, name string) (changeStream *ChangeStream, exists bool) {
 	for _, cs := range database.changeStreams {
-		if cs.Name.SQL() == name {
+		if identsToComparable(cs.Name) == name {
 			changeStream = cs
 			exists = true
 			break
@@ -857,7 +868,7 @@ func (g *Generator) findChangeStreamByName(database *Database, name string) (cha
 	}
 	for _, table := range database.tables {
 		for _, cs := range table.changeStreams {
-			if cs.Name.SQL() == name {
+			if identsToComparable(cs.Name) == name {
 				changeStream = cs
 				exists = true
 				break
@@ -919,7 +930,7 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 
 func (g *Generator) findViewByName(views []*View, name string) (view *View, exists bool) {
 	for _, v := range views {
-		if v.Name.SQL() == name {
+		if identsToComparable(v.Name.Idents...) == name {
 			view = v
 			exists = true
 			break
