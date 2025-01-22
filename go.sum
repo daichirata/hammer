@@ -643,6 +643,8 @@ github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1/go.mod h1:Q3SI9o4m/ZMn
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/cloudspannerecosystem/memefish v0.0.0-20241219043423-1efca7ff9732 h1:iGCsXdC8ourbaMC2r4tSsn3g7sLS+bEsdXs22V+GRm8=
 github.com/cloudspannerecosystem/memefish v0.0.0-20241219043423-1efca7ff9732/go.mod h1:rrHSb7mQfV8Xl47cvnE1dYJ8+zpvog49Yma0j4YCDnc=
+github.com/cloudspannerecosystem/memefish v0.3.1 h1:g3DaGE2slM5KxBlgN6+YWvEf44WB1xMrJdY27gQjDA4=
+github.com/cloudspannerecosystem/memefish v0.3.1/go.mod h1:xZ7uDI8lMlT8BF+3tmMzxdPD1TH4ZzyoiR/MNF1M3Fc=
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cncf/udpa/go v0.0.0-20200629203442-efcf912fb354/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
 github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
