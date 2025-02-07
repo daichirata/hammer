@@ -198,7 +198,7 @@ func TestUpdate_SQL(t *testing.T) {
 		},
 		{
 			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.BytesTypeName}},
-			s: `UPDATE test_table SET test_column = B"" WHERE test_column IS NULL`,
+			s: `UPDATE test_table SET test_column = b"" WHERE test_column IS NULL`,
 		},
 		{
 			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ArraySchemaType{Item: &ast.ScalarSchemaType{Name: ast.StringTypeName}}},
