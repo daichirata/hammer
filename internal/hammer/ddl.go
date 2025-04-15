@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"cloud.google.com/go/spanner/spansql"
+	"github.com/cloudspannerecosystem/memefish"
+	"github.com/cloudspannerecosystem/memefish/ast"
 )
 
 type Statement interface {
@@ -33,16 +34,16 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 		lines = append(lines, line+";")
 	}
 
-	ddl, err := spansql.ParseDDL(uri, strings.Join(lines, ""))
+	ddls, err := memefish.ParseDDLs(uri, strings.Join(lines, ""))
 	if err != nil {
 		return DDL{}, fmt.Errorf("%s failed to parse ddl: %s", uri, err)
 	}
-	list := make([]Statement, 0, len(ddl.List))
-	for _, stmt := range ddl.List {
-		if _, ok := stmt.(*spansql.AlterDatabase); ok && option.IgnoreAlterDatabase {
+	list := make([]Statement, 0, len(ddls))
+	for _, stmt := range ddls {
+		if _, ok := stmt.(*ast.AlterDatabase); ok && option.IgnoreAlterDatabase {
 			continue
 		}
-		if _, ok := stmt.(*spansql.CreateChangeStream); ok && option.IgnoreChangeStreams {
+		if _, ok := stmt.(*ast.CreateChangeStream); ok && option.IgnoreChangeStreams {
 			continue
 		}
 		list = append(list, stmt)
@@ -51,67 +52,66 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 }
 
 type AlterColumn struct {
-	Table      spansql.ID
-	Def        spansql.ColumnDef
+	Table      string
+	Def        *ast.ColumnDef
 	SetOptions bool
 }
 
 func (a AlterColumn) SQL() string {
-	str := "ALTER TABLE " + a.Table.SQL() + " ALTER COLUMN " + a.Def.Name.SQL()
+	str := "ALTER TABLE " + a.Table + " ALTER COLUMN " + a.Def.Name.SQL()
 
 	if a.SetOptions {
-		if a.Def.Options.AllowCommitTimestamp != nil && *a.Def.Options.AllowCommitTimestamp {
-			str += " SET OPTIONS (allow_commit_timestamp = true)"
-		} else {
-			str += " SET OPTIONS (allow_commit_timestamp = null)"
+		v := optionsValueFromName(a.Def.Options, "allow_commit_timestamp")
+		var allowCommitTimestamp bool
+		if v != nil {
+			vt, ok := (*v).(*ast.BoolLiteral)
+			if ok {
+				allowCommitTimestamp = vt.Value
+			}
 		}
-		return str
+		if allowCommitTimestamp {
+			return str + " SET OPTIONS (allow_commit_timestamp = true)"
+		} else {
+			return str + " SET OPTIONS (allow_commit_timestamp = null)"
+		}
 	}
 
 	str += " " + a.Def.Type.SQL()
 	if a.Def.NotNull {
 		str += " NOT NULL"
 	}
-	if a.Def.Default != nil {
-		str += " DEFAULT (" + a.Def.Default.SQL() + ")"
+	if a.Def.DefaultSemantics != nil {
+		str += " " + a.Def.DefaultSemantics.SQL()
 	}
 
 	return str
 }
 
 type Update struct {
-	Table spansql.ID
-	Def   spansql.ColumnDef
+	Table string
+	Def   *ast.ColumnDef
 }
 
 func (u Update) defaultValue() string {
-	if u.Def.Default != nil {
-		return u.Def.Default.SQL()
+	if u.Def.DefaultSemantics != nil {
+		switch t := u.Def.DefaultSemantics.(type) {
+		case *ast.ColumnDefaultExpr:
+			return t.Expr.SQL()
+		}
 	}
 
-	if u.Def.Type.Array {
+	switch t := u.Def.Type.(type) {
+	case *ast.ArraySchemaType:
 		return "[]"
-	}
-	switch u.Def.Type.Base {
-	case spansql.Bool:
-		return "false"
-	case spansql.Int64, spansql.Float64:
-		return "0"
-	case spansql.String:
-		return "''"
-	case spansql.Bytes:
-		return "b''"
-	case spansql.Date:
-		return "'0001-01-01'"
-	case spansql.Timestamp:
-		return "'0001-01-01T00:00:00Z'"
-	case spansql.JSON:
-		return "JSON '{}'"
+	case *ast.ScalarSchemaType:
+		return defaultByScalarTypeName(t.Name).SQL()
+	case *ast.SizedSchemaType:
+		return defaultByScalarTypeName(t.Name).SQL()
 	default:
 		return "''"
 	}
 }
 
 func (u Update) SQL() string {
-	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table.SQL(), u.Def.Name.SQL(), u.defaultValue(), u.Def.Name.SQL())
+	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table, u.Def.Name.SQL(), u.defaultValue(), u.Def.Name.SQL())
 }
