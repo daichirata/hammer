@@ -51,6 +51,12 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
+		case *ast.CreateSearchIndex:
+			if t, ok := m[identsToComparable(stmt.TableName)]; ok {
+				t.searchIndexes = append(t.searchIndexes, stmt)
+			} else {
+				return nil, fmt.Errorf("cannot find ddl of table to apply search index %s", stmt.Name.SQL())
+			}
 		case *ast.AlterTable:
 			t, ok := m[identsToComparable(stmt.Name.Idents...)]
 			if !ok {
@@ -109,6 +115,7 @@ type Table struct {
 	*ast.CreateTable
 
 	indexes       []*ast.CreateIndex
+	searchIndexes []*ast.CreateSearchIndex
 	children      []*Table
 	changeStreams []*ChangeStream
 }
@@ -305,6 +312,9 @@ func (g *Generator) generateDDLForCreateTableAndIndex(table *Table) DDL {
 	for _, i := range table.indexes {
 		ddl.Append(i)
 	}
+	for _, i := range table.searchIndexes {
+		ddl.Append(i)
+	}
 	for _, cs := range table.changeStreams {
 		g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)] = cs
 	}
@@ -322,6 +332,9 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	}
 	for _, i := range table.indexes {
 		ddl.Append(&ast.DropIndex{Name: i.Name})
+	}
+	for _, i := range table.searchIndexes {
+		ddl.Append(&ast.DropSearchIndex{Name: i.Name})
 	}
 	for _, cs := range table.changeStreams {
 		if !g.isDropedChangeStream(identsToComparable(cs.Name)) {
@@ -415,6 +428,7 @@ func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
 
 	return ddl
 }
+
 func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 	ddl := DDL{}
 
@@ -519,6 +533,16 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
 
+	searchIndexes := []*ast.CreateSearchIndex{}
+	for _, i := range g.findSearchIndexByColumn(from.searchIndexes, identsToComparable(fromCol.Name)) {
+		if !g.isDropedIndex(identsToComparable(i.Name)) {
+			searchIndexes = append(searchIndexes, i)
+		}
+	}
+	for _, i := range searchIndexes {
+		ddl.Append(&ast.DropSearchIndex{Name: i.Name})
+	}
+
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
 	if toCol.NotNull && toCol.DefaultSemantics == nil {
@@ -528,6 +552,9 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
 	}
 	for _, i := range indexes {
+		ddl.Append(i)
+	}
+	for _, i := range searchIndexes {
 		ddl.Append(i)
 	}
 	return ddl
@@ -550,6 +577,22 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
+
+	for _, toIndex := range to.searchIndexes {
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+
+		if exists && !g.searchIndexEqual(*fromIndex, *toIndex) {
+			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+		}
+	}
+	for _, fromIndex := range from.searchIndexes {
+		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name)); !exists {
+			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+		}
+	}
+
 	return ddl
 }
 
@@ -563,6 +606,15 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 			ddl.Append(toIndex)
 		}
 	}
+
+	for _, toIndex := range to.searchIndexes {
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+
+		if !exists || !g.searchIndexEqual(*fromIndex, *toIndex) {
+			ddl.Append(toIndex)
+		}
+	}
+
 	return ddl
 }
 
@@ -574,6 +626,7 @@ func (g *Generator) generateDDLForCreateChangeStream(from *Database, to *Table) 
 	}
 	return ddl
 }
+
 func (g *Generator) generateDDLForDropNamedConstraint(table *ast.Path, constraint *ast.TableConstraint) DDL {
 	ddl := DDL{}
 
@@ -633,6 +686,7 @@ func (g *Generator) isDropedChangeStream(name string) bool {
 	}
 	return false
 }
+
 func (g *Generator) interleaveEqual(x, y *Table) bool {
 	return cmp.Equal(x.Cluster, y.Cluster, cmpopts.IgnoreTypes(token.Pos(0)))
 }
@@ -709,6 +763,10 @@ func (g *Generator) indexEqual(x, y *ast.CreateIndex) bool {
 			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}),
 	)
+}
+
+func (g *Generator) searchIndexEqual(x, y ast.CreateSearchIndex) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
 func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
@@ -861,6 +919,28 @@ func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string)
 	for _, i := range indexes {
 		for _, c := range i.Keys {
 			if identsToComparable(c.Name) == column {
+				result = append(result, i)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (index *ast.CreateSearchIndex, exists bool) {
+	for _, i := range indexes {
+		if identsToComparable(i.Name) == name {
+			return i, true
+		}
+	}
+	return nil, false
+}
+
+func (g *Generator) findSearchIndexByColumn(indexes []*ast.CreateSearchIndex, column string) []*ast.CreateSearchIndex {
+	result := []*ast.CreateSearchIndex{}
+	for _, i := range indexes {
+		for _, c := range i.TokenListPart {
+			if c.Name == column {
 				result = append(result, i)
 				break
 			}
