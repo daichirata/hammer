@@ -445,6 +445,11 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
+		if fromCol.Hidden != toCol.Hidden {
+			ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
+			continue
+		}
+
 		if g.columnDefEqual(fromCol, toCol) {
 			continue
 		}
