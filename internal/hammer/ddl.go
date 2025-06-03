@@ -80,7 +80,8 @@ func (a AlterColumn) SQL() string {
 	if a.Def.NotNull {
 		str += " NOT NULL"
 	}
-	if !a.Def.Hidden.Invalid() {
+	// HIDDEN will be either be 0 or invalid if not set.
+	if !a.Def.Hidden.Invalid() && a.Def.Hidden != 0 {
 		str += " HIDDEN"
 	}
 	if a.Def.DefaultSemantics != nil {
