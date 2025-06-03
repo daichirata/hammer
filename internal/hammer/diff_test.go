@@ -403,6 +403,59 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "add hidden column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 TOKENLIST AS (TOKENIZE_NUMBER(Value, comparison_type => "all", min => 1, max => 5)) HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ADD COLUMN t1_2 TOKENLIST AS (TOKENIZE_NUMBER(Value, comparison_type => "all", min => 1, max => 5)) HIDDEN`,
+			},
+		},
+		{
+			name: "add hidden attribute to column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(36) NOT NULL HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(36) NOT NULL HIDDEN`,
+			},
+		},
+		{
+			name: "remove hidden attribute from column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(36) NOT NULL HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 STRING(36) NOT NULL`,
+			},
+		},
+		{
 			name: "add generated column",
 			from: `
 CREATE TABLE t1 (
@@ -533,6 +586,103 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 				`ALTER TABLE t1 ADD COLUMN t1_3 INT64 NOT NULL DEFAULT (0)`,
 				`ALTER TABLE t1 ALTER COLUMN t1_3 DROP DEFAULT`,
 				`CREATE INDEX idx_t1_2 ON t1(t1_3)`,
+			},
+		},
+		{
+			name: "add search index",
+			from: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 INT64 NOT NULL,
+	t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 INT64 NOT NULL,
+	t1_3 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2);
+CREATE SEARCH INDEX idx_t1_3 ON t1(t1_3);
+`,
+			expected: []string{
+				`CREATE SEARCH INDEX idx_t1_3 ON t1(t1_3)`,
+			},
+		},
+		{
+			name: "add advanced search index",
+			from: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 INT64 NOT NULL,
+	t1_3 TOKENLIST AS (TOKENIZE_SUBSTRING(Name)) HIDDEN,
+	t1_4 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 INT64 NOT NULL,
+	t1_3 TOKENLIST AS (TOKENIZE_SUBSTRING(Name)) HIDDEN,
+	t1_4 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_3 ON t1(t1_3) STORING (t1_4)
+PARTITION BY t1_4
+ORDER BY t1_1 DESC, INTERLEAVE IN (t1)
+OPTIONS (sort_order_sharding=true);
+`,
+			expected: []string{
+				`CREATE SEARCH INDEX idx_t1_3 ON t1(t1_3) STORING (t1_4) PARTITION BY t1_4 ORDER BY t1_1 DESC, INTERLEAVE IN (t1) OPTIONS (sort_order_sharding = true)`,
+			},
+		},
+		{
+			name: "alter search index",
+			from: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+	t1_3 STRING(MAX) NOT NULL,
+	t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_2);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+	t1_3 STRING(MAX) NOT NULL,
+	t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_2, t1_4);
+`,
+			expected: []string{
+				`DROP SEARCH INDEX idx_t1_2`,
+				`CREATE SEARCH INDEX idx_t1_2 ON t1(t1_2, t1_4)`,
+			},
+		},
+		{
+			name: "drop search index",
+			from: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+	t1_3 STRING(MAX) NOT NULL,
+	t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+CREATE SEARCH INDEX idx_t1_2 ON t1(t1_2);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 STRING(MAX) NOT NULL,
+	t1_2 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+	t1_3 STRING(MAX) NOT NULL,
+	t1_4 TOKENLIST AS (TOKENIZE_FULLTEXT(Name)) HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`DROP SEARCH INDEX idx_t1_2`,
 			},
 		},
 		{
