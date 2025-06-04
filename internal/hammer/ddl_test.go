@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cloudspannerecosystem/memefish/ast"
+	"github.com/cloudspannerecosystem/memefish/token"
 
 	"github.com/daichirata/hammer/internal/hammer"
 )
@@ -164,6 +165,10 @@ func TestAlterColumn_SQL(t *testing.T) {
 		{
 			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, NotNull: true, DefaultSemantics: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
 			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 NOT NULL DEFAULT (1)",
+		},
+		{
+			d: &ast.ColumnDef{Name: newIdent("test_column"), Type: &ast.ScalarSchemaType{Name: ast.Int64TypeName}, NotNull: true, Hidden: token.Pos(1), DefaultSemantics: &ast.ColumnDefaultExpr{Expr: &ast.IntLiteral{Value: "1"}}},
+			e: "ALTER TABLE test_table ALTER COLUMN test_column INT64 NOT NULL DEFAULT (1) HIDDEN",
 		},
 	}
 	for _, v := range values {
