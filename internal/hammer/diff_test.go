@@ -420,6 +420,21 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "add hidden column different pos",
+			from: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL,
+  t1_2 TOKENLIST AS (TOKENIZE_NUMBER(Value, comparison_type => "all", min => 1, max => 5)) HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 STRING(36) NOT NULL, t1_2 TOKENLIST AS (TOKENIZE_NUMBER(Value, comparison_type => "all", min => 1, max => 5)) HIDDEN,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{},
+		},
+		{
 			name: "add hidden attribute to column",
 			from: `
 CREATE TABLE t1 (
