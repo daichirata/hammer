@@ -648,6 +648,29 @@ CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_4);
 			},
 		},
 		{
+			name: "change index columns",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_3);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_3) STORING (t1_2);
+`,
+			expected: []string{
+				`DROP INDEX idx_t1_1`,
+				`CREATE INDEX idx_t1_1 ON t1(t1_3) STORING (t1_2)`,
+			},
+		},
+		{
 			name: "change indexed column",
 			from: `
 CREATE TABLE t1 (

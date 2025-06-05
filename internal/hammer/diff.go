@@ -633,7 +633,7 @@ func (g *Generator) generateDDLForAlterIndex(from, to *Table) DDL {
 		}
 
 		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
-		if !exists {
+		if !exists || !g.indexEqual(fromIndex, toIndex) {
 			continue
 		}
 
@@ -658,7 +658,7 @@ func (g *Generator) generateDDLForAlterIndex(from, to *Table) DDL {
 		}
 
 		toIndex, exists := g.findIndexByName(to.indexes, identsToComparable(fromIndex.Name.Idents...))
-		if !exists {
+		if !exists || !g.indexEqual(fromIndex, toIndex) {
 			continue
 		}
 
