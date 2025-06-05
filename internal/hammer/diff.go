@@ -194,10 +194,10 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForDropIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForColumns(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateIndex(fromTable, toTable))
+		ddl.AppendDDL(g.generateDDLForAlterIndex(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
-		ddl.AppendDDL(g.generateDDLForAlterIndex(fromTable, toTable))
 	}
 	for _, fromTable := range g.from.tables {
 		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
