@@ -197,6 +197,7 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
+		ddl.AppendDDL(g.generateDDLForAlterIndex(fromTable, toTable))
 	}
 	for _, fromTable := range g.from.tables {
 		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
@@ -623,6 +624,62 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	return ddl
 }
 
+func (g *Generator) generateDDLForAlterIndex(from, to *Table) DDL {
+	ddl := DDL{}
+
+	for _, toIndex := range to.indexes {
+		if toIndex.Storing == nil {
+			continue
+		}
+
+		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
+		if !exists {
+			continue
+		}
+
+		for _, toIndexStoringColumn := range toIndex.Storing.Columns {
+			if fromIndex.Storing != nil {
+				if _, exists := g.findIdentByName(fromIndex.Storing.Columns, identsToComparable(toIndexStoringColumn)); exists {
+					continue
+				}
+			}
+			ddl.Append(&ast.AlterIndex{
+				Name: toIndex.Name,
+				IndexAlteration: &ast.AddStoredColumn{
+					Name: toIndexStoringColumn,
+				},
+			})
+		}
+	}
+
+	for _, fromIndex := range from.indexes {
+		if fromIndex.Storing == nil {
+			continue
+		}
+
+		toIndex, exists := g.findIndexByName(to.indexes, identsToComparable(fromIndex.Name.Idents...))
+		if !exists {
+			continue
+		}
+
+		for _, fromIndexStoringColumn := range fromIndex.Storing.Columns {
+			if toIndex.Storing != nil {
+				if _, exists := g.findIdentByName(toIndex.Storing.Columns, identsToComparable(fromIndexStoringColumn)); exists {
+					continue
+				}
+			}
+			ddl.Append(&ast.AlterIndex{
+				Name: toIndex.Name,
+				IndexAlteration: &ast.DropStoredColumn{
+					Name: fromIndexStoringColumn,
+				},
+			})
+		}
+	}
+
+	return ddl
+}
+
 func (g *Generator) generateDDLForCreateChangeStream(from *Database, to *Table) DDL {
 	ddl := DDL{}
 
@@ -756,6 +813,7 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 func (g *Generator) indexEqual(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmpopts.IgnoreTypes(&ast.Storing{}),
 		cmp.Comparer(func(a, b *ast.IndexKey) bool {
 			aVal := *a
 			bVal := *b
@@ -876,6 +934,17 @@ func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (col *a
 	for _, c := range cols {
 		if strings.EqualFold(identsToComparable(c.Name), name) {
 			col = c
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) findIdentByName(idents []*ast.Ident, name string) (ident *ast.Ident, exists bool) {
+	for _, i := range idents {
+		if strings.EqualFold(identsToComparable(i), name) {
+			ident = i
 			exists = true
 			break
 		}

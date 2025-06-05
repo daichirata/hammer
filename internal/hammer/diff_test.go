@@ -561,6 +561,93 @@ CREATE INDEX idx_t1_2 ON t1(t1_3);
 			},
 		},
 		{
+			name: "alter index add stored column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2);
+CREATE INDEX idx_t1_2 ON t1(t1_2) STORING (t1_3);
+CREATE INDEX idx_t1_3 ON t1(t1_2);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_3);
+CREATE INDEX idx_t1_2 ON t1(t1_2) STORING (t1_3, t1_4);
+CREATE INDEX idx_t1_3 ON t1(t1_2) STORING (t1_3, t1_4);
+`,
+			expected: []string{
+				`ALTER INDEX idx_t1_1 ADD STORED COLUMN t1_3`,
+				`ALTER INDEX idx_t1_2 ADD STORED COLUMN t1_4`,
+				`ALTER INDEX idx_t1_3 ADD STORED COLUMN t1_3`,
+				`ALTER INDEX idx_t1_3 ADD STORED COLUMN t1_4`,
+			},
+		},
+		{
+			name: "alter index drop stored column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_3);
+CREATE INDEX idx_t1_2 ON t1(t1_2) STORING (t1_3, t1_4);
+CREATE INDEX idx_t1_3 ON t1(t1_2) STORING (t1_3, t1_4);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2);
+CREATE INDEX idx_t1_2 ON t1(t1_2) STORING (t1_3);
+CREATE INDEX idx_t1_3 ON t1(t1_2);
+`,
+			expected: []string{
+				`ALTER INDEX idx_t1_1 DROP STORED COLUMN t1_3`,
+				`ALTER INDEX idx_t1_2 DROP STORED COLUMN t1_4`,
+				`ALTER INDEX idx_t1_3 DROP STORED COLUMN t1_3`,
+				`ALTER INDEX idx_t1_3 DROP STORED COLUMN t1_4`,
+			},
+		},
+		{
+			name: "alter index change stored column",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_3);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(36) NOT NULL,
+  t1_3 STRING(36) NOT NULL,
+  t1_4 STRING(36) NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1_1 ON t1(t1_2) STORING (t1_4);
+`,
+			expected: []string{
+				`ALTER INDEX idx_t1_1 ADD STORED COLUMN t1_4`,
+				`ALTER INDEX idx_t1_1 DROP STORED COLUMN t1_3`,
+			},
+		},
+		{
 			name: "change indexed column",
 			from: `
 CREATE TABLE t1 (
