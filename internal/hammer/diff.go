@@ -445,9 +445,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		isFromColHidden := !fromCol.Hidden.Invalid() && fromCol.Hidden != token.Pos(0)
-		isToColHidden := !toCol.Hidden.Invalid() && toCol.Hidden != token.Pos(0)
-		if isFromColHidden != isToColHidden {
+		if isColHidden(fromCol) != isColHidden(toCol) {
 			ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
 			continue
 		}
@@ -1061,4 +1059,8 @@ func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
 	ddl.Append(&ast.DropView{Name: view.Name})
 	return ddl
+}
+
+func isColHidden(col *ast.ColumnDef) bool {
+	return !col.Hidden.Invalid() && col.Hidden != token.Pos(0)
 }
