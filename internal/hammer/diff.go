@@ -572,7 +572,7 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
 
-		if exists && !g.indexWithoutStoringEqual(fromIndex, toIndex) {
+		if exists && !g.indexEqualIgnoringStoring(fromIndex, toIndex) {
 			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
 			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
@@ -608,7 +608,7 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	for _, toIndex := range to.indexes {
 		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
 
-		if !exists || !g.indexWithoutStoringEqual(fromIndex, toIndex) {
+		if !exists || !g.indexEqualIgnoringStoring(fromIndex, toIndex) {
 			ddl.Append(toIndex)
 		}
 	}
@@ -633,7 +633,7 @@ func (g *Generator) generateDDLForAlterIndex(from, to *Table) DDL {
 		}
 
 		fromIndex, exists := g.findIndexByName(from.indexes, identsToComparable(toIndex.Name.Idents...))
-		if !exists || !g.indexWithoutStoringEqual(fromIndex, toIndex) {
+		if !exists || !g.indexEqualIgnoringStoring(fromIndex, toIndex) {
 			continue
 		}
 
@@ -658,7 +658,7 @@ func (g *Generator) generateDDLForAlterIndex(from, to *Table) DDL {
 		}
 
 		toIndex, exists := g.findIndexByName(to.indexes, identsToComparable(fromIndex.Name.Idents...))
-		if !exists || !g.indexWithoutStoringEqual(fromIndex, toIndex) {
+		if !exists || !g.indexEqualIgnoringStoring(fromIndex, toIndex) {
 			continue
 		}
 
@@ -810,7 +810,7 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
 }
 
-func (g *Generator) indexWithoutStoringEqual(x, y *ast.CreateIndex) bool {
+func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
 		cmpopts.IgnoreTypes(&ast.Storing{}),
