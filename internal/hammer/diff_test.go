@@ -1785,6 +1785,71 @@ CREATE TABLE T1 (
 				"ALTER TABLE `Order` ADD COLUMN order_2 INT64",
 			},
 		},
+		{
+			name: "create role",
+			from: `
+			CREATE ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			`,
+			expected: []string{
+				`CREATE ROLE role2`,
+			},
+		},
+		{
+			name: "drop role",
+			from: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			`,
+			to: `
+			CREATE ROLE role1;
+`,
+			expected: []string{
+				`DROP ROLE role2`,
+			},
+		},
+		{
+			name: "grant role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role2;
+			`,
+			expected: []string{
+				`GRANT SELECT ON TABLE T2 TO ROLE role2`,
+			},
+		},
+		{
+			name: "revoke role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role2;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T2 FROM ROLE role2`,
+			},
+		},
+		{
+			name: "replace grant role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			GRANT SELECT, INSERT ON TABLE T1, T2 TO ROLE role1, role2;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`GRANT SELECT, INSERT ON TABLE T1, T2 TO ROLE role1, role2`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
