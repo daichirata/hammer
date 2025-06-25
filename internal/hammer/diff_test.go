@@ -1812,6 +1812,21 @@ CREATE TABLE T1 (
 			},
 		},
 		{
+			name: "drop unused role only",
+			from: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`DROP ROLE role2`,
+			},
+		},
+		{
 			name: "grant role",
 			from: `
 			GRANT SELECT ON TABLE T1 TO ROLE role1;
@@ -1823,6 +1838,16 @@ CREATE TABLE T1 (
 			expected: []string{
 				`GRANT SELECT ON TABLE T2 TO ROLE role2`,
 			},
+		},
+		{
+			name: "grant role with same roles in different order",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1, role2;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role2, role1;
+			`,
+			expected: []string{},
 		},
 		{
 			name: "revoke role",
@@ -1848,6 +1873,19 @@ CREATE TABLE T1 (
 			expected: []string{
 				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 				`GRANT SELECT, INSERT ON TABLE T1, T2 TO ROLE role1, role2`,
+			},
+		},
+		{
+			name: "revoke only, keep role",
+			from: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 			},
 		},
 	}
