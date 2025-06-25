@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"strings"
 
-	// "cloud.google.com/go/spanner/spansql"
-
 	"github.com/cloudspannerecosystem/memefish/ast"
 	"github.com/cloudspannerecosystem/memefish/token"
 	"github.com/google/go-cmp/cmp"
