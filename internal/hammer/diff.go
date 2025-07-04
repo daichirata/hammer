@@ -1240,11 +1240,9 @@ func equalAstGrant(a, b *ast.Grant) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-
 	if !equalPrivilege(a.Privilege, b.Privilege) {
 		return false
 	}
-
 	return equalRoles(a.Roles, b.Roles)
 }
 
@@ -1252,9 +1250,92 @@ func equalPrivilege(a, b ast.Privilege) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-
 	if reflect.TypeOf(a) != reflect.TypeOf(b) {
 		return false
+	}
+
+	switch aTyped := a.(type) {
+	case *ast.PrivilegeOnTable:
+		bTyped := b.(*ast.PrivilegeOnTable)
+		if !equalIdents(aTyped.Names, bTyped.Names) {
+			return false
+		}
+		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
+	case *ast.SelectPrivilegeOnChangeStream:
+		bTyped := b.(*ast.SelectPrivilegeOnChangeStream)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.SelectPrivilegeOnView:
+		bTyped := b.(*ast.SelectPrivilegeOnView)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.ExecutePrivilegeOnTableFunction:
+		bTyped := b.(*ast.ExecutePrivilegeOnTableFunction)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.RolePrivilege:
+		bTyped := b.(*ast.RolePrivilege)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	default:
+		return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
+	}
+}
+
+func equalPrivilegesOnTable(a, b []ast.TablePrivilege) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	used := make([]bool, len(b))
+	for _, pa := range a {
+		match := false
+		for j, pb := range b {
+			if used[j] {
+				continue
+			}
+			if matchTablePrivilege(pa, pb) {
+				used[j] = true
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+	return true
+}
+
+func matchTablePrivilege(a, b ast.TablePrivilege) bool {
+	if reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+	switch aTyped := a.(type) {
+	case *ast.SelectPrivilege:
+		bTyped := b.(*ast.SelectPrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.InsertPrivilege:
+		bTyped := b.(*ast.InsertPrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.UpdatePrivilege:
+		bTyped := b.(*ast.UpdatePrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.DeletePrivilege:
+		return true
+	default:
+		return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
+	}
+}
+
+func equalIdents(a, b []*ast.Ident) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	identMap := make(map[string]int)
+	for _, ident := range a {
+		identMap[ident.Name]++
+	}
+	for _, ident := range b {
+		if identMap[ident.Name] == 0 {
+			return false
+		}
+		identMap[ident.Name]--
 	}
 	return true
 }
