@@ -34,6 +34,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
+		roles                []*Role
+		grants               []*Grant
 		alterDatabaseOptions *ast.AlterDatabase
 		options              *ast.Options
 	)
@@ -85,6 +87,10 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *ast.CreateView:
 			v := &View{CreateView: stmt}
 			views = append(views, v)
+		case *ast.CreateRole:
+			roles = append(roles, &Role{CreateRole: stmt})
+		case *ast.Grant:
+			grants = append(grants, &Grant{Grant: stmt})
 		default:
 			return nil, fmt.Errorf("unexpected ddl statement: %v", stmt.SQL())
 		}
@@ -99,14 +105,15 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
-	tables        []*Table
-	changeStreams []*ChangeStream
-	views         []*View
-
+	tables               []*Table
+	changeStreams        []*ChangeStream
+	views                []*View
+	roles                []*Role
+	grants               []*Grant
 	alterDatabaseOptions *ast.AlterDatabase
 	options              *ast.Options
 }
@@ -122,6 +129,14 @@ type Table struct {
 
 type View struct {
 	*ast.CreateView
+}
+
+type Role struct {
+	*ast.CreateRole
+}
+
+type Grant struct {
+	*ast.Grant
 }
 
 type ChangeStream struct {
@@ -241,6 +256,34 @@ func (g *Generator) GenerateDDL() DDL {
 			ddl.AppendDDL(g.generateDDLForDropView(fromView))
 		}
 	}
+
+	// for roles
+	for _, toRole := range g.to.roles {
+		roleName := identsToComparable(toRole.Name)
+		if _, exists := g.findRoleByName(g.from.roles, roleName); !exists {
+			ddl.Append(toRole)
+			continue
+		}
+	}
+	for _, fromRole := range g.from.roles {
+		roleName := identsToComparable(fromRole.Name)
+		if _, exists := g.findRoleByName(g.to.roles, roleName); !exists {
+			ddl.AppendDDL(g.generateDDLForDropRole(fromRole))
+		}
+	}
+
+	// for grants
+	for _, fromGrant := range g.from.grants {
+		if _, exists := g.findGrant(g.to.grants, fromGrant); !exists {
+			ddl.AppendDDL(g.generateDDLForRevokeAll(fromGrant))
+		}
+	}
+	for _, toGrant := range g.to.grants {
+		if _, exists := g.findGrant(g.from.grants, toGrant); !exists {
+			ddl.Append(toGrant)
+		}
+	}
+
 	return ddl
 }
 
@@ -917,6 +960,13 @@ func identsToComparable(is ...*ast.Ident) string {
 	return b.String()
 }
 
+func identToComparable(i *ast.Ident) string {
+	if i == nil {
+		return ""
+	}
+	return i.Name
+}
+
 func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	switch t := col.Type.(type) {
 	case *ast.ArraySchemaType:
@@ -1145,4 +1195,176 @@ func (g *Generator) generateDDLForDropView(view *View) DDL {
 
 func isColHidden(col *ast.ColumnDef) bool {
 	return !col.Hidden.Invalid() && col.Hidden != token.Pos(0)
+}
+
+func (g *Generator) findRoleByName(roles []*Role, name string) (role *Role, exists bool) {
+	for _, r := range roles {
+		if identToComparable(r.Name) == name {
+			role = r
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForDropRole(role *Role) DDL {
+	ddl := DDL{}
+	ddl.Append(&ast.DropRole{
+		Name: role.Name,
+	})
+	return ddl
+}
+
+func (g *Generator) findGrant(grants []*Grant, grant *Grant) (grantRole *Grant, exists bool) {
+	for _, grt := range grants {
+		if equalGrant(grt, grant) {
+			grantRole = grt
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) generateDDLForRevokeAll(grant *Grant) DDL {
+	ddl := DDL{}
+	if len(grant.Roles) == 0 {
+		return ddl
+	}
+
+	stmt := &ast.Revoke{
+		Privilege: grant.Privilege,
+		Roles:     grant.Roles,
+	}
+
+	ddl.Append(stmt)
+	return ddl
+}
+
+func equalGrant(a, b *Grant) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return equalAstGrant(a.Grant, b.Grant)
+}
+
+func equalAstGrant(a, b *ast.Grant) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if !equalPrivilege(a.Privilege, b.Privilege) {
+		return false
+	}
+	return equalRoles(a.Roles, b.Roles)
+}
+
+func equalPrivilege(a, b ast.Privilege) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+
+	switch aTyped := a.(type) {
+	case *ast.PrivilegeOnTable:
+		bTyped := b.(*ast.PrivilegeOnTable)
+		if !equalIdents(aTyped.Names, bTyped.Names) {
+			return false
+		}
+		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
+	case *ast.SelectPrivilegeOnChangeStream:
+		bTyped := b.(*ast.SelectPrivilegeOnChangeStream)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.SelectPrivilegeOnView:
+		bTyped := b.(*ast.SelectPrivilegeOnView)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.ExecutePrivilegeOnTableFunction:
+		bTyped := b.(*ast.ExecutePrivilegeOnTableFunction)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	case *ast.RolePrivilege:
+		bTyped := b.(*ast.RolePrivilege)
+		return equalIdents(aTyped.Names, bTyped.Names)
+	default:
+		return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
+	}
+}
+
+func equalPrivilegesOnTable(a, b []ast.TablePrivilege) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	used := make([]bool, len(b))
+	for _, pa := range a {
+		match := false
+		for j, pb := range b {
+			if used[j] {
+				continue
+			}
+			if matchTablePrivilege(pa, pb) {
+				used[j] = true
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+	return true
+}
+
+func matchTablePrivilege(a, b ast.TablePrivilege) bool {
+	if reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+	switch aTyped := a.(type) {
+	case *ast.SelectPrivilege:
+		bTyped := b.(*ast.SelectPrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.InsertPrivilege:
+		bTyped := b.(*ast.InsertPrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.UpdatePrivilege:
+		bTyped := b.(*ast.UpdatePrivilege)
+		return equalIdents(aTyped.Columns, bTyped.Columns)
+	case *ast.DeletePrivilege:
+		return true
+	default:
+		return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
+	}
+}
+
+func equalIdents(a, b []*ast.Ident) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	identMap := make(map[string]int)
+	for _, ident := range a {
+		identMap[ident.Name]++
+	}
+	for _, ident := range b {
+		if identMap[ident.Name] == 0 {
+			return false
+		}
+		identMap[ident.Name]--
+	}
+	return true
+}
+
+func equalRoles(a, b []*ast.Ident) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	roleSet := make(map[string]bool)
+	for _, r := range a {
+		roleSet[r.Name] = true
+	}
+	for _, r := range b {
+		if !roleSet[r.Name] {
+			return false
+		}
+	}
+	return true
 }
