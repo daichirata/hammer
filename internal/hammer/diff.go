@@ -807,7 +807,20 @@ func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
 }
 
 func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+	return cmp.Equal(x, y,
+		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmp.Comparer(func(a, b *ast.ForeignKey) bool {
+			aVal := *a
+			bVal := *b
+			if aVal.OnDelete == "" {
+				aVal.OnDelete = ast.OnDeleteNoAction
+			}
+			if bVal.OnDelete == "" {
+				bVal.OnDelete = ast.OnDeleteNoAction
+			}
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+		}),
+	)
 }
 
 func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {

@@ -1194,6 +1194,30 @@ CREATE TABLE t2 (
 			},
 		},
 		{
+			name: "Do not recreate constraint for default delete action.",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1) ON DELETE NO ACTION,
+) PRIMARY KEY(t2_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64,
+  CONSTRAINT FK_t2 FOREIGN KEY (t2_1) REFERENCES t1 (t1_1),
+) PRIMARY KEY(t2_1);
+		`,
+			expected: []string{},
+		},
+		{
 			name: "AlterTable add foreign key",
 			from: `
 CREATE TABLE t2 (
