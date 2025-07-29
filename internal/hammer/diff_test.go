@@ -1886,7 +1886,10 @@ CREATE TABLE T1 (
 			to: `
 			GRANT SELECT ON TABLE T1 TO ROLE role2, role1;
 			`,
-			expected: []string{},
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1, role2`,
+				`GRANT SELECT ON TABLE T1 TO ROLE role2, role1`,
+			},
 		},
 		{
 			name: "revoke role",
@@ -1965,7 +1968,10 @@ CREATE TABLE T1 (
 			to: `
 				GRANT SELECT ON TABLE T2, T1 TO ROLE role1;
 			`,
-			expected: []string{},
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1, T2 FROM ROLE role1`,
+				`GRANT SELECT ON TABLE T2, T1 TO ROLE role1`,
+			},
 		},
 		{
 			name: "replace privilege type on same table",
@@ -2009,16 +2015,6 @@ CREATE TABLE T1 (
 			expected: []string{
 				`GRANT SELECT, INSERT, DELETE ON TABLE T1 TO ROLE role1`,
 			},
-		},
-		{
-			name: "grant privileges in different order",
-			from: `
-				GRANT INSERT, SELECT ON TABLE T1 TO ROLE role1;
-			`,
-			to: `
-				GRANT SELECT, INSERT ON TABLE T1 TO ROLE role1;
-			`,
-			expected: []string{},
 		},
 		{
 			name: "revoke select column and grant new columns",

@@ -947,13 +947,6 @@ func identsToComparable(is ...*ast.Ident) string {
 	return b.String()
 }
 
-func identToComparable(i *ast.Ident) string {
-	if i == nil {
-		return ""
-	}
-	return i.Name
-}
-
 func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	switch t := col.Type.(type) {
 	case *ast.ArraySchemaType:
@@ -1186,7 +1179,7 @@ func isColHidden(col *ast.ColumnDef) bool {
 
 func (g *Generator) findRoleByName(roles []*Role, name string) (role *Role, exists bool) {
 	for _, r := range roles {
-		if identToComparable(r.Name) == name {
+		if identsToComparable(r.Name) == name {
 			role = r
 			exists = true
 			break
@@ -1243,7 +1236,7 @@ func equalAstGrant(a, b *ast.Grant) bool {
 	if !equalPrivilege(a.Privilege, b.Privilege) {
 		return false
 	}
-	return equalRoles(a.Roles, b.Roles)
+	return equalIdentLists(a.Roles, b.Roles)
 }
 
 func equalPrivilege(a, b ast.Privilege) bool {
@@ -1257,22 +1250,22 @@ func equalPrivilege(a, b ast.Privilege) bool {
 	switch aTyped := a.(type) {
 	case *ast.PrivilegeOnTable:
 		bTyped := b.(*ast.PrivilegeOnTable)
-		if !equalIdents(aTyped.Names, bTyped.Names) {
+		if !equalIdentLists(aTyped.Names, bTyped.Names) {
 			return false
 		}
 		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
 	case *ast.SelectPrivilegeOnChangeStream:
 		bTyped := b.(*ast.SelectPrivilegeOnChangeStream)
-		return equalIdents(aTyped.Names, bTyped.Names)
+		return equalIdentLists(aTyped.Names, bTyped.Names)
 	case *ast.SelectPrivilegeOnView:
 		bTyped := b.(*ast.SelectPrivilegeOnView)
-		return equalIdents(aTyped.Names, bTyped.Names)
+		return equalIdentLists(aTyped.Names, bTyped.Names)
 	case *ast.ExecutePrivilegeOnTableFunction:
 		bTyped := b.(*ast.ExecutePrivilegeOnTableFunction)
-		return equalIdents(aTyped.Names, bTyped.Names)
+		return equalIdentLists(aTyped.Names, bTyped.Names)
 	case *ast.RolePrivilege:
 		bTyped := b.(*ast.RolePrivilege)
-		return equalIdents(aTyped.Names, bTyped.Names)
+		return equalIdentLists(aTyped.Names, bTyped.Names)
 	default:
 		return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
 	}
@@ -1282,20 +1275,8 @@ func equalPrivilegesOnTable(a, b []ast.TablePrivilege) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	used := make([]bool, len(b))
-	for _, pa := range a {
-		match := false
-		for j, pb := range b {
-			if used[j] {
-				continue
-			}
-			if matchTablePrivilege(pa, pb) {
-				used[j] = true
-				match = true
-				break
-			}
-		}
-		if !match {
+	for i, tp := range a {
+		if !matchTablePrivilege(tp, b[i]) {
 			return false
 		}
 	}
@@ -1309,13 +1290,13 @@ func matchTablePrivilege(a, b ast.TablePrivilege) bool {
 	switch aTyped := a.(type) {
 	case *ast.SelectPrivilege:
 		bTyped := b.(*ast.SelectPrivilege)
-		return equalIdents(aTyped.Columns, bTyped.Columns)
+		return equalIdentLists(aTyped.Columns, bTyped.Columns)
 	case *ast.InsertPrivilege:
 		bTyped := b.(*ast.InsertPrivilege)
-		return equalIdents(aTyped.Columns, bTyped.Columns)
+		return equalIdentLists(aTyped.Columns, bTyped.Columns)
 	case *ast.UpdatePrivilege:
 		bTyped := b.(*ast.UpdatePrivilege)
-		return equalIdents(aTyped.Columns, bTyped.Columns)
+		return equalIdentLists(aTyped.Columns, bTyped.Columns)
 	case *ast.DeletePrivilege:
 		return true
 	default:
@@ -1323,35 +1304,6 @@ func matchTablePrivilege(a, b ast.TablePrivilege) bool {
 	}
 }
 
-func equalIdents(a, b []*ast.Ident) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	identMap := make(map[string]int)
-	for _, ident := range a {
-		identMap[ident.Name]++
-	}
-	for _, ident := range b {
-		if identMap[ident.Name] == 0 {
-			return false
-		}
-		identMap[ident.Name]--
-	}
-	return true
-}
-
-func equalRoles(a, b []*ast.Ident) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	roleSet := make(map[string]bool)
-	for _, r := range a {
-		roleSet[r.Name] = true
-	}
-	for _, r := range b {
-		if !roleSet[r.Name] {
-			return false
-		}
-	}
-	return true
+func equalIdentLists(a, b []*ast.Ident) bool {
+	return identsToComparable(a...) == identsToComparable(b...)
 }
