@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"os"
 )
 
 type Source interface {
@@ -16,6 +16,7 @@ type Source interface {
 type DDLOption struct {
 	IgnoreAlterDatabase bool
 	IgnoreChangeStreams bool
+	IgnoreModels        bool
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
@@ -79,7 +80,7 @@ func (s *FileSource) String() string {
 }
 
 func (s *FileSource) DDL(_ context.Context, option *DDLOption) (DDL, error) {
-	schema, err := ioutil.ReadFile(s.path)
+	schema, err := os.ReadFile(s.path)
 	if err != nil {
 		return DDL{}, err
 	}
