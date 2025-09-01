@@ -1809,6 +1809,250 @@ CREATE TABLE T1 (
 				"ALTER TABLE `Order` ADD COLUMN order_2 INT64",
 			},
 		},
+		{
+			name: "create role",
+			from: `
+			CREATE ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			`,
+			expected: []string{
+				`CREATE ROLE role2`,
+			},
+		},
+		{
+			name: "drop role",
+			from: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			`,
+			to: `
+			CREATE ROLE role1;
+`,
+			expected: []string{
+				`DROP ROLE role2`,
+			},
+		},
+		{
+			name: "drop unused role only",
+			from: `
+			CREATE ROLE role1;
+			CREATE ROLE role2;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`DROP ROLE role2`,
+			},
+		},
+		{
+			name: "grant role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role2;
+			`,
+			expected: []string{
+				`GRANT SELECT ON TABLE T2 TO ROLE role2`,
+			},
+		},
+		{
+			name: "grant select on view",
+			from: `
+				CREATE ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				GRANT SELECT ON VIEW V1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT ON VIEW V1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant select on change stream",
+			from: `
+				CREATE ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant execute on table function",
+			from: `
+				CREATE ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				GRANT EXECUTE ON TABLE FUNCTION tf1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT EXECUTE ON TABLE FUNCTION tf1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant role with same roles in different order",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1, role2;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role2, role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1, role2`,
+				`GRANT SELECT ON TABLE T1 TO ROLE role2, role1`,
+			},
+		},
+		{
+			name: "revoke role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role2;
+			`,
+			to: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T2 FROM ROLE role2`,
+			},
+		},
+		{
+			name: "replace grant role",
+			from: `
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			GRANT SELECT, INSERT ON TABLE T1, T2 TO ROLE role1, role2;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`GRANT SELECT, INSERT ON TABLE T1, T2 TO ROLE role1, role2`,
+			},
+		},
+		{
+			name: "revoke only, keep role",
+			from: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+			},
+		},
+		{
+			name: "grant same role on different tables",
+			from: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT ON TABLE T2 TO ROLE role1`,
+			},
+		},
+		{
+			name: "revoke same role on different tables",
+			from: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			GRANT SELECT ON TABLE T2 TO ROLE role1;
+			`,
+			to: `
+			CREATE ROLE role1;
+			GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T2 FROM ROLE role1`,
+			},
+		},
+		{
+			name: "grant on multiple tables in different order",
+			from: `
+				GRANT SELECT ON TABLE T1, T2 TO ROLE role1;
+			`,
+			to: `
+				GRANT SELECT ON TABLE T2, T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1, T2 FROM ROLE role1`,
+				`GRANT SELECT ON TABLE T2, T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "replace privilege type on same table",
+			from: `
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				GRANT INSERT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`GRANT INSERT ON TABLE T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant on view resource",
+			from: ``,
+			to: `
+				GRANT SELECT ON VIEW V1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT ON VIEW V1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant on change stream",
+			from: ``,
+			to: `
+				GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "grant multiple privileges at once",
+			from: ``,
+			to: `
+				GRANT SELECT, INSERT, DELETE ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`GRANT SELECT, INSERT, DELETE ON TABLE T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "revoke select column and grant new columns",
+			from: `
+				GRANT SELECT(col1) ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				GRANT SELECT(col1, col2) ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT(col1) ON TABLE T1 FROM ROLE role1`,
+				`GRANT SELECT(col1, col2) ON TABLE T1 TO ROLE role1`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
