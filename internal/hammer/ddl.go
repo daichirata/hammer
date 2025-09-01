@@ -46,6 +46,9 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 		if _, ok := stmt.(*ast.CreateChangeStream); ok && option.IgnoreChangeStreams {
 			continue
 		}
+		if _, ok := stmt.(*ast.CreateModel); ok && option.IgnoreModels {
+			continue
+		}
 		list = append(list, stmt)
 	}
 	return DDL{List: list}, nil
