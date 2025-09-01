@@ -1526,8 +1526,8 @@ func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
 		return false
 	}
 	targetKey := identsToComparable(column)
-	for _, privlege := range p.Privileges {
-		switch t := privlege.(type) {
+	for _, privilege := range p.Privileges {
+		switch t := privilege.(type) {
 		case *ast.SelectPrivilege:
 			for _, c := range t.Columns {
 				if identsToComparable(c) == targetKey {
