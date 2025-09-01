@@ -1427,7 +1427,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 
 	case *ast.ExecutePrivilegeOnTableFunction:
 		// Not tracked yet; return true so REVOKE precedes DROP ROLE (safe order).
-    	// TODO: Check existence when table functions are modeled.
+		// TODO: Check existence when table functions are modeled.
 		return true
 
 	default:
