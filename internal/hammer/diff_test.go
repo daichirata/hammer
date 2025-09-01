@@ -2053,6 +2053,176 @@ CREATE TABLE T1 (
 				`GRANT SELECT(col1, col2) ON TABLE T1 TO ROLE role1`,
 			},
 		},
+		{
+			name: "revoke on table before DROP TABLE",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP TABLE T1`,
+			},
+		},
+		{
+			name: "revoke on table before DROP TABLE (PK change triggers drop)",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64,name STRING(100)) PRIMARY KEY(id);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64,name STRING(100)) PRIMARY KEY(name);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP TABLE T1`,
+				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100)\n) PRIMARY KEY (name)",
+				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "revoke on table before DROP TABLE (interleave parent changed)",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE P1 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE P2 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE T1 (id INT64 NOT NULL) PRIMARY KEY(id), INTERLEAVE IN PARENT P1;
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				CREATE TABLE P1 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE P2 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE T1 (id INT64 NOT NULL) PRIMARY KEY(id), INTERLEAVE IN PARENT P2;
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP TABLE T1`,
+				"CREATE TABLE T1 (\n  id INT64 NOT NULL\n) PRIMARY KEY (id),\n  INTERLEAVE IN PARENT P2",
+				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "revoke on table before DROP TABLE (removing interleave)",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE P1 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE T1 (id INT64 NOT NULL) PRIMARY KEY(id), INTERLEAVE IN PARENT P1;
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				CREATE TABLE P1 (pid INT64 NOT NULL) PRIMARY KEY(pid);
+				CREATE TABLE T1 (id INT64 NOT NULL) PRIMARY KEY(id);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP TABLE T1`,
+				"CREATE TABLE T1 (\n  id INT64 NOT NULL\n) PRIMARY KEY (id)",
+				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
+			},
+		},
+		{
+			name: "revoke on column before DROP COLUMN",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64, name STRING(100));
+				GRANT SELECT(name) ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64);
+			`,
+			expected: []string{
+				`REVOKE SELECT(name) ON TABLE T1 FROM ROLE role1`,
+				`ALTER TABLE T1 DROP COLUMN name`,
+			},
+		},
+		{
+			name: "revoke on view before DROP VIEW",
+			from: `
+				CREATE ROLE role1;
+				CREATE VIEW V1 SQL SECURITY INVOKER AS SELECT 1;
+				GRANT SELECT ON VIEW V1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON VIEW V1 FROM ROLE role1`,
+				`DROP VIEW V1`,
+			},
+		},
+		{
+			name: "revoke on change stream before DROP CHANGE STREAM",
+			from: `
+				CREATE ROLE role1;
+				CREATE CHANGE STREAM CS1 FOR ALL;
+				GRANT SELECT ON CHANGE STREAM CS1 TO ROLE role1;
+			`,
+			to: `
+				CREATE ROLE role1;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON CHANGE STREAM CS1 FROM ROLE role1`,
+				`DROP CHANGE STREAM CS1`,
+			},
+		},
+		{
+			name: "revoke table grant before DROP ROLE",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+			`,
+			to: `
+				CREATE TABLE T1 (id INT64);
+			`,
+			expected: []string{
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP ROLE role1`,
+			},
+		},
+		{
+			name: "revoke view grant before DROP ROLE",
+			from: `
+				CREATE ROLE role1;
+				CREATE VIEW V1 SQL SECURITY INVOKER AS SELECT 1;
+				GRANT SELECT ON VIEW V1 TO ROLE role1;
+			`,
+			to: `
+				CREATE VIEW V1 SQL SECURITY INVOKER AS SELECT 1;
+			`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW V1 SQL SECURITY INVOKER AS SELECT 1`,
+				`REVOKE SELECT ON VIEW V1 FROM ROLE role1`,
+				`DROP ROLE role1`,
+			},
+		},
+		{
+			name: "revoke change stream grant before DROP ROLE",
+			from: `
+				CREATE ROLE role1;
+				CREATE CHANGE STREAM CS1 FOR ALL;
+				GRANT SELECT ON CHANGE STREAM CS1 TO ROLE role1;
+			`,
+			to: `
+				CREATE CHANGE STREAM CS1 FOR ALL;
+			`,
+			expected: []string{
+				`REVOKE SELECT ON CHANGE STREAM CS1 FROM ROLE role1`,
+				`DROP ROLE role1`,
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
