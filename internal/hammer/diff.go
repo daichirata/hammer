@@ -490,7 +490,6 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		if g.isDroppedGrant(grant) {
 			continue
 		}
-		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
 		g.droppedGrant = append(g.droppedGrant, grant)
 	}
 	ddl.Append(&ast.DropTable{Name: table.Name})
@@ -673,7 +672,6 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 		if g.isDroppedGrant(grant) {
 			continue
 		}
-		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
 		g.droppedGrant = append(g.droppedGrant, grant)
 	}
 
@@ -1290,7 +1288,6 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 		if g.isDroppedGrant(grant) {
 			continue
 		}
-		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
 		g.droppedGrant = append(g.droppedGrant, grant)
 	}
 
@@ -1322,7 +1319,6 @@ func (g *Generator) generateDDLForDropView(view *View) DDL {
 		if g.isDroppedGrant(grant) {
 			continue
 		}
-		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
 		g.droppedGrant = append(g.droppedGrant, grant)
 	}
 

@@ -2064,7 +2064,6 @@ CREATE TABLE T1 (
 				CREATE ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 				`DROP TABLE T1`,
 			},
 		},
@@ -2081,7 +2080,6 @@ CREATE TABLE T1 (
 				GRANT SELECT ON TABLE T1 TO ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 				`DROP TABLE T1`,
 				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100)\n) PRIMARY KEY (name)",
 				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
@@ -2104,7 +2102,6 @@ CREATE TABLE T1 (
 				GRANT SELECT ON TABLE T1 TO ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 				`DROP TABLE T1`,
 				"CREATE TABLE T1 (\n  id INT64 NOT NULL\n) PRIMARY KEY (id),\n  INTERLEAVE IN PARENT P2",
 				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
@@ -2125,7 +2122,6 @@ CREATE TABLE T1 (
 				GRANT SELECT ON TABLE T1 TO ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
 				`DROP TABLE T1`,
 				"CREATE TABLE T1 (\n  id INT64 NOT NULL\n) PRIMARY KEY (id)",
 				`GRANT SELECT ON TABLE T1 TO ROLE role1`,
@@ -2143,7 +2139,6 @@ CREATE TABLE T1 (
 				CREATE TABLE T1 (id INT64);
 			`,
 			expected: []string{
-				`REVOKE SELECT(name) ON TABLE T1 FROM ROLE role1`,
 				`ALTER TABLE T1 DROP COLUMN name`,
 			},
 		},
@@ -2158,7 +2153,6 @@ CREATE TABLE T1 (
 				CREATE ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON VIEW V1 FROM ROLE role1`,
 				`DROP VIEW V1`,
 			},
 		},
@@ -2173,7 +2167,6 @@ CREATE TABLE T1 (
 				CREATE ROLE role1;
 			`,
 			expected: []string{
-				`REVOKE SELECT ON CHANGE STREAM CS1 FROM ROLE role1`,
 				`DROP CHANGE STREAM CS1`,
 			},
 		},
