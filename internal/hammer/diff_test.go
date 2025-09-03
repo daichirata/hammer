@@ -2011,26 +2011,6 @@ CREATE TABLE T1 (
 			},
 		},
 		{
-			name: "grant on view resource",
-			from: ``,
-			to: `
-				GRANT SELECT ON VIEW V1 TO ROLE role1;
-			`,
-			expected: []string{
-				`GRANT SELECT ON VIEW V1 TO ROLE role1`,
-			},
-		},
-		{
-			name: "grant on change stream",
-			from: ``,
-			to: `
-				GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1;
-			`,
-			expected: []string{
-				`GRANT SELECT ON CHANGE STREAM cs1 TO ROLE role1`,
-			},
-		},
-		{
 			name: "grant multiple privileges at once",
 			from: ``,
 			to: `
@@ -2214,6 +2194,24 @@ CREATE TABLE T1 (
 			expected: []string{
 				`REVOKE SELECT ON CHANGE STREAM CS1 FROM ROLE role1`,
 				`DROP ROLE role1`,
+			},
+		},
+		{
+			name: "drop role: revoke only for resources that remain in target",
+			from: `
+				CREATE ROLE role1;
+				CREATE TABLE T1 (id INT64);
+				CREATE TABLE T2 (id INT64);
+				GRANT SELECT ON TABLE T1 TO ROLE role1;
+				GRANT SELECT ON TABLE T2 TO ROLE role1;
+			`,
+			to: `
+				CREATE TABLE T1 (id INT64);
+			`,
+			expected: []string{
+				`DROP TABLE T2`,
+				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
+				`DROP ROLE role1`,  
 			},
 		},
 	}

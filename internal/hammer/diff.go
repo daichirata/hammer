@@ -1349,15 +1349,15 @@ func (g *Generator) generateDDLForDropRole(role *Role) DDL {
 		if g.isDroppedGrant(grant) {
 			continue
 		}
-		// If the grant's target resource does NOT exist in "to(Database)", skip here:
-		// the object-side DROP will emit REVOKE → DROP for that resource.
+		g.droppedGrant = append(g.droppedGrant, grant)
+
+		// If the resource doesn't exist in "to(Database)", skip REVOKE:
+		// dropping the object means the grant no longer applies. Record droppedGrant only.
 		if !g.existsGrantResourceIn(grant, g.to) {
 			continue
 		}
 		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
-		g.droppedGrant = append(g.droppedGrant, grant)
 	}
-
 	ddl.Append(&ast.DropRole{
 		Name: role.Name,
 	})
