@@ -81,6 +81,7 @@ apply, create, diff and export can accept the flags defined below
 ```
 --ignore-alter-database   ignore alter database statements
 --ignore-change-streams   ignore change streams statements
+--ignore-models           ignore model statements
 ```
 
 ### Examples
