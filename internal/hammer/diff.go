@@ -118,6 +118,90 @@ type Database struct {
 	options              *ast.Options
 }
 
+func (d *Database) grantsOnTable(table *Table) []*Grant {
+	var result []*Grant
+	target := identsToComparable(table.Name.Idents...)
+
+	for _, grant := range d.grants {
+		switch p := grant.Grant.Privilege.(type) {
+		case *ast.PrivilegeOnTable:
+			for _, name := range p.Names {
+				if identsToComparable(name) == target {
+					result = append(result, grant)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
+	var result []*Grant
+	target := identsToComparable(path.Idents...)
+
+	for _, grant := range d.grants {
+		switch p := grant.Grant.Privilege.(type) {
+		case *ast.PrivilegeOnTable:
+			for _, name := range p.Names {
+				if identsToComparable(name) == target {
+					result = append(result, grant)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+func (d *Database) grantsOnView(view *View) []*Grant {
+	var result []*Grant
+	target := identsToComparable(view.Name.Idents...)
+	for _, grant := range d.grants {
+		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView); exists {
+			for _, name := range p.Names {
+				if identsToComparable(name) == target {
+					result = append(result, grant)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
+	var result []*Grant
+	target := identsToComparable(cs.Name)
+
+	for _, grant := range d.grants {
+		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream); exists {
+			for _, name := range p.Names {
+				if identsToComparable(name) == target {
+					result = append(result, grant)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+func (d *Database) grantsOnRole(role *Role) []*Grant {
+	var result []*Grant
+	target := identsToComparable(role.Name)
+
+	for _, grant := range d.grants {
+		for _, r := range grant.Roles {
+			if identsToComparable(r) == target {
+				result = append(result, grant)
+				break
+			}
+		}
+	}
+	return result
+}
+
 type Table struct {
 	*ast.CreateTable
 
@@ -171,6 +255,7 @@ type Generator struct {
 	dropedIndex                      []string
 	dropedChangeStream               []string
 	droppedConstraints               []*ast.TableConstraint
+	droppedGrant                     []*Grant
 	willCreateOrAlterChangeStreamIDs map[string]*ChangeStream
 }
 
@@ -275,11 +360,18 @@ func (g *Generator) GenerateDDL() DDL {
 	// for grants
 	for _, fromGrant := range g.from.grants {
 		if _, exists := g.findGrant(g.to.grants, fromGrant); !exists {
+			if g.isDroppedGrant(fromGrant) {
+				continue
+			}
 			ddl.AppendDDL(g.generateDDLForRevokeAll(fromGrant))
 		}
 	}
 	for _, toGrant := range g.to.grants {
-		if _, exists := g.findGrant(g.from.grants, toGrant); !exists {
+		if fromGrant, exists := g.findGrant(g.from.grants, toGrant); exists {
+			if g.isDroppedGrant(fromGrant) {
+				ddl.Append(toGrant)
+			}
+		} else {
 			ddl.Append(toGrant)
 		}
 	}
@@ -393,6 +485,13 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		}
 		return identsToComparable(fk.ReferenceTable.Idents...) == identsToComparable(table.Name.Idents...)
 	}))
+	grants := g.from.grantsOnTable(table)
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
 	ddl.Append(&ast.DropTable{Name: table.Name})
 	g.dropedTable = append(g.dropedTable, identsToComparable(table.Name.Idents...))
 	return ddl
@@ -560,6 +659,21 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 
 		return false
 	}))
+
+	grants := g.from.grantsFromPath(table)
+	for _, grant := range grants {
+		priv, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable)
+		if !ok {
+			continue
+		}
+		if !hasPrivilegeOnColumn(priv, column) {
+			continue
+		}
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
 
 	ddl.Append(&ast.AlterTable{
 		Name:            table,
@@ -786,6 +900,15 @@ func (g *Generator) isDroppedConstraint(constraint *ast.TableConstraint) bool {
 func (g *Generator) isDropedChangeStream(name string) bool {
 	for _, t := range g.dropedChangeStream {
 		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) isDroppedGrant(grant *Grant) bool {
+	for _, dg := range g.droppedGrant {
+		if equalGrant(dg, grant) {
 			return true
 		}
 	}
@@ -1159,6 +1282,15 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
 	ddl := DDL{}
+
+	grants := g.from.grantsOnChangeStream(changeStream)
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
+
 	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
 	return ddl
 }
@@ -1182,6 +1314,14 @@ func (g *Generator) generateDDLForReplaceView(view *View) DDL {
 
 func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
+	grants := g.from.grantsOnView(view)
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
+
 	ddl.Append(&ast.DropView{Name: view.Name})
 	return ddl
 }
@@ -1203,6 +1343,21 @@ func (g *Generator) findRoleByName(roles []*Role, name string) (role *Role, exis
 
 func (g *Generator) generateDDLForDropRole(role *Role) DDL {
 	ddl := DDL{}
+	grants := g.from.grantsOnRole(role)
+
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+
+		// If the resource doesn't exist in "to(Database)", skip REVOKE:
+		// dropping the object means the grant no longer applies. Record droppedGrant only.
+		if !g.existsGrantResourceIn(grant, g.to) {
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
+	}
 	ddl.Append(&ast.DropRole{
 		Name: role.Name,
 	})
@@ -1233,6 +1388,47 @@ func (g *Generator) generateDDLForRevokeAll(grant *Grant) DDL {
 
 	ddl.Append(stmt)
 	return ddl
+}
+
+// existsGrantResourceIn returns true if any target resource of the grant exists in the given database.
+// Note: this checks resource existence (table/view/change stream…), not whether the grant itself exists.
+func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool {
+	if grant == nil || grant.Grant == nil || grant.Grant.Privilege == nil {
+		return false
+	}
+	switch p := grant.Grant.Privilege.(type) {
+	case *ast.PrivilegeOnTable:
+		for _, name := range p.Names {
+			if _, exists := g.findTableByName(database.tables, identsToComparable(name)); exists {
+				return true
+			}
+		}
+		return false
+
+	case *ast.SelectPrivilegeOnView:
+		for _, name := range p.Names {
+			if _, exists := g.findViewByName(database.views, identsToComparable(name)); exists {
+				return true
+			}
+		}
+		return false
+
+	case *ast.SelectPrivilegeOnChangeStream:
+		for _, name := range p.Names {
+			if _, exists := g.findChangeStreamByName(database, identsToComparable(name)); exists {
+				return true
+			}
+		}
+		return false
+
+	case *ast.ExecutePrivilegeOnTableFunction:
+		// Not tracked yet; return true so REVOKE precedes DROP ROLE (safe order).
+		// TODO: Check existence when table functions are modeled.
+		return true
+
+	default:
+		return false
+	}
 }
 
 func equalGrant(a, b *Grant) bool {
@@ -1319,4 +1515,38 @@ func matchTablePrivilege(a, b ast.TablePrivilege) bool {
 
 func equalIdentLists(a, b []*ast.Ident) bool {
 	return identsToComparable(a...) == identsToComparable(b...)
+}
+
+func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
+	if p == nil || column == nil {
+		return false
+	}
+	targetKey := identsToComparable(column)
+	for _, privilege := range p.Privileges {
+		switch t := privilege.(type) {
+		case *ast.SelectPrivilege:
+			for _, c := range t.Columns {
+				if identsToComparable(c) == targetKey {
+					return true
+				}
+			}
+		case *ast.InsertPrivilege:
+			for _, c := range t.Columns {
+				if identsToComparable(c) == targetKey {
+					return true
+				}
+			}
+		case *ast.UpdatePrivilege:
+			for _, c := range t.Columns {
+				if identsToComparable(c) == targetKey {
+					return true
+				}
+			}
+		case *ast.DeletePrivilege:
+			continue
+		default:
+			continue
+		}
+	}
+	return false
 }
