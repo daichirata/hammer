@@ -6,7 +6,7 @@ toolchain go1.23.2
 
 require (
 	cloud.google.com/go/spanner v1.62.0
-	github.com/cloudspannerecosystem/memefish v0.6.3-0.20250823041836-b8d9bf6a877b
+	github.com/cloudspannerecosystem/memefish v0.6.3-0.20250912143235-4776405ac3b0
 	github.com/google/go-cmp v0.7.0
 	github.com/spf13/cobra v0.0.5
 	google.golang.org/api v0.180.0
