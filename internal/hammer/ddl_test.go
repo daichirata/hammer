@@ -116,6 +116,30 @@ OPTIONS (
   Name STRING(10) NOT NULL
 ) PRIMARY KEY (UserID);`,
 		},
+		{
+			name: "Ignore models with trailing commas",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
+) PRIMARY KEY(UserID);
+
+CREATE MODEL GeminiFlash
+INPUT (prompt STRING(MAX),)
+OUTPUT (content STRING(MAX),)
+REMOTE
+OPTIONS (
+  endpoint = '//aiplatform.googleapis.com/projects/PROJECT/locations/LOCATION/publishers/google/models/MODEL',
+  default_batch_size = 1
+);
+`,
+			option: &hammer.DDLOption{
+				IgnoreModels: true,
+			},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL
+) PRIMARY KEY (UserID);`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
