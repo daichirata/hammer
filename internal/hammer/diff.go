@@ -25,6 +25,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 		from:                             database1,
 		to:                               database2,
 		willCreateOrAlterChangeStreamIDs: map[string]*ChangeStream{},
+		alteredChangeStreamStates:        map[string]*ChangeStream{},
 	}
 	return generator.GenerateDDL(), nil
 }
@@ -257,6 +258,7 @@ type Generator struct {
 	droppedConstraints               []*ast.TableConstraint
 	droppedGrant                     []*Grant
 	willCreateOrAlterChangeStreamIDs map[string]*ChangeStream
+	alteredChangeStreamStates        map[string]*ChangeStream
 }
 
 func (g *Generator) GenerateDDL() DDL {
@@ -323,6 +325,9 @@ func (g *Generator) GenerateDDL() DDL {
 		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
 			ddl.Append(cs)
 			continue
+		}
+		if alteredState, hasAlteredState := g.alteredChangeStreamStates[identsToComparable(cs.Name)]; hasAlteredState {
+			fromChangeStream = alteredState
 		}
 
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
@@ -474,6 +479,38 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	}
 	for _, cs := range table.changeStreams {
 		if !g.isDropedChangeStream(identsToComparable(cs.Name)) {
+			if csFor, ok := cs.For.(*ast.ChangeStreamForTables); ok && len(csFor.Tables) > 1 {
+				var remainingTables []*ast.ChangeStreamForTable
+				for _, t := range csFor.Tables {
+					if identsToComparable(t.TableName) != identsToComparable(table.Name.Idents...) {
+						remainingTables = append(remainingTables, t)
+					}
+				}
+				hasRemainingTableInTarget := false
+				for _, t := range remainingTables {
+					if _, exists := g.findTableByName(g.to.tables, identsToComparable(t.TableName)); exists {
+						hasRemainingTableInTarget = true
+						break
+					}
+				}
+				if len(remainingTables) > 0 && hasRemainingTableInTarget {
+					ddl.Append(&ast.AlterChangeStream{
+						Name: cs.Name,
+						ChangeStreamAlteration: &ast.ChangeStreamSetFor{
+							For: &ast.ChangeStreamForTables{Tables: remainingTables},
+						},
+					})
+					alteredCS := &ChangeStream{
+						CreateChangeStream: &ast.CreateChangeStream{
+							Name:    cs.Name,
+							For:     &ast.ChangeStreamForTables{Tables: remainingTables},
+							Options: cs.Options,
+						},
+					}
+					g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
+					continue
+				}
+			}
 			ddl.Append(&ast.DropChangeStream{Name: cs.Name})
 			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
 		}

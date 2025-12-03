@@ -2211,7 +2211,43 @@ CREATE TABLE T1 (
 			expected: []string{
 				`DROP TABLE T2`,
 				`REVOKE SELECT ON TABLE T1 FROM ROLE role1`,
-				`DROP ROLE role1`,  
+				`DROP ROLE role1`,
+			},
+		},
+		{
+			name: "recreating table and change stream watches multiple tables",
+			from: `
+				CREATE TABLE T1 (id INT64, name STRING(100)) PRIMARY KEY(id, name);
+				CREATE TABLE T2 (id INT64 PRIMARY KEY);
+				CREATE CHANGE STREAM CS1 FOR T1, T2;
+			`,
+			to: `
+				CREATE TABLE T1 (id INT64, name STRING(100) NOT NULL) PRIMARY KEY(id, name);
+				CREATE TABLE T2 (id INT64 PRIMARY KEY);
+				CREATE CHANGE STREAM CS1 FOR T1, T2;
+			`,
+			expected: []string{
+				`ALTER CHANGE STREAM CS1 SET FOR T2`,
+				`DROP TABLE T1`,
+				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100) NOT NULL\n) PRIMARY KEY (id, name)",
+				`ALTER CHANGE STREAM CS1 SET FOR T1, T2`,
+			},
+		},
+		{
+			name: "recreating table and only change stream is for that table",
+			from: `
+				CREATE TABLE T1 (id INT64, name STRING(100)) PRIMARY KEY(id, name);
+				CREATE CHANGE STREAM CS1 FOR T1;
+			`,
+			to: `
+				CREATE TABLE T1 (id INT64, name STRING(100) NOT NULL) PRIMARY KEY(id, name);
+				CREATE CHANGE STREAM CS1 FOR T1;
+			`,
+			expected: []string{
+				`DROP CHANGE STREAM CS1`,
+				`DROP TABLE T1`,
+				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100) NOT NULL\n) PRIMARY KEY (id, name)",
+				`CREATE CHANGE STREAM CS1 FOR T1`,
 			},
 		},
 	}
