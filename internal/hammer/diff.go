@@ -320,6 +320,19 @@ func (g *Generator) GenerateDDL() DDL {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
 		}
 	}
+	for _, fromTable := range g.from.tables {
+		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
+			continue
+		}
+		for _, cs := range fromTable.changeStreams {
+			if g.isDropedChangeStream(identsToComparable(cs.Name)) {
+				continue
+			}
+			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); !exists {
+				ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
+			}
+		}
+	}
 	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(cs.Name))
 		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
@@ -508,6 +521,11 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						},
 					}
 					g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
+					continue
+				}
+			}
+			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); exists {
+				if _, tableExists := g.findTableByName(g.to.tables, identsToComparable(table.Name.Idents...)); !tableExists {
 					continue
 				}
 			}
@@ -1284,8 +1302,7 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeAll:
 		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
 	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeNone:
-		ddl.Append(&ast.DropChangeStream{Name: to.Name})
-		ddl.Append(&ast.CreateChangeStream{Name: to.Name})
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamDropForAll{}})
 	case fromType == ChangeStreamTypeTables && toType == ChangeStreamTypeTables:
 		if !g.changeStreamForEqual(from.For, to.For) {
 			ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
@@ -1300,17 +1317,15 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 		if options == nil {
 			options = &ast.Options{}
 		}
-		if optionsValueFromName(from.Options, "retention_period") != nil && optionsValueFromName(to.Options, "retention_period") == nil {
-			options.Records = append(options.Records, &ast.OptionsDef{
-				Name:  &ast.Ident{Name: "retention_period"},
-				Value: &ast.StringLiteral{Value: "1d"},
-			})
-		}
-		if optionsValueFromName(from.Options, "value_capture_type") != nil && optionsValueFromName(to.Options, "value_capture_type") == nil {
-			options.Records = append(options.Records, &ast.OptionsDef{
-				Name:  &ast.Ident{Name: "value_capture_type"},
-				Value: &ast.StringLiteral{Value: "OLD_AND_NEW_VALUES"},
-			})
+		if from.Options != nil {
+			for _, r := range from.Options.Records {
+				if optionsValueFromName(to.Options, r.Name.Name) == nil {
+					options.Records = append(options.Records, &ast.OptionsDef{
+						Name:  &ast.Ident{Name: r.Name.Name},
+						Value: &ast.NullLiteral{},
+					})
+				}
+			}
 		}
 		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: options}})
 	}

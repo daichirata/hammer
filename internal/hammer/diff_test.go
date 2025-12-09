@@ -1434,6 +1434,47 @@ CREATE CHANGE STREAM SomeStream;
 			expected:            []string{"DROP CHANGE STREAM SomeStream"},
 		},
 		{
+			name: "drop change stream with watch all",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "drop change stream with watch tables",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE CHANGE STREAM SomeStream FOR t1;
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "drop change stream with watch columns",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE CHANGE STREAM SomeStream FOR t1(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
 			name: "create change stream",
 			from: ``,
 			to: `
@@ -1533,7 +1574,7 @@ CREATE TABLE Albums (
 CREATE CHANGE STREAM SomeStream;
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{"DROP CHANGE STREAM SomeStream", "CREATE CHANGE STREAM SomeStream"},
+			expected:            []string{"ALTER CHANGE STREAM SomeStream DROP FOR ALL"},
 		},
 		{
 			name: "alter change stream watch table to all",
@@ -1577,9 +1618,8 @@ CREATE CHANGE STREAM SomeStream FOR Albums;
 				`CREATE TABLE Albums (
   id INT64 NOT NULL
 ) PRIMARY KEY (id)`,
-				"DROP CHANGE STREAM SomeStream",
 				"DROP TABLE Singers",
-				`CREATE CHANGE STREAM SomeStream FOR Albums`,
+				"ALTER CHANGE STREAM SomeStream SET FOR Albums",
 			},
 		},
 		{
@@ -1655,24 +1695,44 @@ CREATE CHANGE STREAM SomeStreamTwo FOR Singers;
 		{
 			name: "alter change stream option",
 			from: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES', exclude_ttl_deletes = false, exclude_insert = false, exclude_update = false, exclude_delete = false, allow_txn_exclusion = false );
 `,
 			to: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "5d", value_capture_type = "NEW_ROW")`},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "5d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
 		},
 		{
 			name: "alter change stream option to default",
 			from: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
 `,
 			to: `
 CREATE CHANGE STREAM SomeStream FOR ALL;
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "1d", value_capture_type = "OLD_AND_NEW_VALUES")`},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = null, value_capture_type = null, exclude_ttl_deletes = null, exclude_insert = null, exclude_update = null, exclude_delete = null, allow_txn_exclusion = null)`},
+		},
+		{
+			name: "create change stream with all options",
+			from: ``,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '7d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{`CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS (retention_period = "7d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
+		},
+		{
+			name: "alter change stream add all options",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '7d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "7d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
 		},
 		{
 			name: "both sides have identical fields of timestamp with a default value",
