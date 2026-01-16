@@ -1041,6 +1041,80 @@ CREATE TABLE t2 (
 			},
 		},
 		{
+			name: "Do not drop unrelated constraint (same column name)",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+
+CREATE TABLE t3 (
+  t3_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT FK_t3 FOREIGN KEY (t1_2) REFERENCES t2 (t2_1),
+) PRIMARY KEY(t3_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+
+CREATE TABLE t3 (
+  t3_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT FK_t3 FOREIGN KEY (t1_2) REFERENCES t2 (t2_1),
+) PRIMARY KEY(t3_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+		{
+			name: "Do not drop unrelated constraint (same referenced column name)",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t1_2 INT64 NOT NULL,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t3 (
+  t3_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT FK_t3 FOREIGN KEY (t1_2) REFERENCES t2 (t1_2),
+) PRIMARY KEY(t3_1);
+		`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE TABLE t2 (
+  t1_2 INT64 NOT NULL,
+) PRIMARY KEY(t1_2);
+
+CREATE TABLE t3 (
+  t3_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT FK_t3 FOREIGN KEY (t1_2) REFERENCES t2 (t1_2),
+) PRIMARY KEY(t3_1);
+		`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+		{
 			name: "Drop constraint referencing dropped table.",
 			from: `
 CREATE TABLE t1 (

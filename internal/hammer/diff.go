@@ -515,7 +515,7 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
 		}
 	}
-	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint *ast.TableConstraint) bool {
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(_ *Table, constraint *ast.TableConstraint) bool {
 		fk, ok := constraint.Constraint.(*ast.ForeignKey)
 		if !ok {
 			return false
@@ -677,20 +677,25 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(constraint *ast.TableConstraint) bool {
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(t *Table, constraint *ast.TableConstraint) bool {
 		fk, ok := constraint.Constraint.(*ast.ForeignKey)
 		if !ok {
 			return false
 		}
-		for _, c := range fk.Columns {
-			if identsToComparable(column) == identsToComparable(c) {
-				return true
+
+		if identsToComparable(t.Name.Idents...) == identsToComparable(table.Idents...) {
+			for _, c := range fk.Columns {
+				if identsToComparable(column) == identsToComparable(c) {
+					return true
+				}
 			}
 		}
 
-		for _, refColumn := range fk.ReferenceColumns {
-			if identsToComparable(column) == identsToComparable(refColumn) {
-				return true
+		if identsToComparable(fk.ReferenceTable.Idents...) == identsToComparable(table.Idents...) {
+			for _, refColumn := range fk.ReferenceColumns {
+				if identsToComparable(column) == identsToComparable(refColumn) {
+					return true
+				}
 			}
 		}
 
@@ -1239,12 +1244,12 @@ func (g *Generator) findSearchIndexByColumn(indexes []*ast.CreateSearchIndex, co
 	return result
 }
 
-func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicate func(constraint *ast.TableConstraint) bool) DDL {
+func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicate func(table *Table, constraint *ast.TableConstraint) bool) DDL {
 	ddl := DDL{}
 
 	for _, table := range g.from.tables {
 		for _, constraint := range table.TableConstraints {
-			if predicate(constraint) {
+			if predicate(table, constraint) {
 				ddl.AppendDDL(g.generateDDLForDropNamedConstraint(table.Name, constraint))
 			}
 		}
