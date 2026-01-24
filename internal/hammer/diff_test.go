@@ -1618,8 +1618,8 @@ CREATE CHANGE STREAM SomeStream FOR Albums;
 				`CREATE TABLE Albums (
   id INT64 NOT NULL
 ) PRIMARY KEY (id)`,
-				"DROP TABLE Singers",
 				"ALTER CHANGE STREAM SomeStream SET FOR Albums",
+				"DROP TABLE Singers",
 			},
 		},
 		{
@@ -2308,6 +2308,51 @@ CREATE TABLE T1 (
 				`DROP TABLE T1`,
 				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100) NOT NULL\n) PRIMARY KEY (id, name)",
 				`CREATE CHANGE STREAM CS1 FOR T1`,
+			},
+		},
+		{
+			name: "drop change stream referenced by multiple tables",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "repoint change stream before dropping old table",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t1;
+`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM SomeStream SET FOR t2",
+				"DROP TABLE t1",
 			},
 		},
 	}

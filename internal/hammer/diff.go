@@ -301,11 +301,6 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
 	}
-	for _, fromTable := range g.from.tables {
-		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
-			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
-		}
-	}
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(toChangeStream.Name))
@@ -315,6 +310,24 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, toChangeStream))
 	}
+	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
+		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(cs.Name))
+		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
+			ddl.Append(cs)
+			continue
+		}
+		if alteredState, hasAlteredState := g.alteredChangeStreamStates[identsToComparable(cs.Name)]; hasAlteredState {
+			fromChangeStream = alteredState
+		}
+		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
+	}
+	// drop tables
+	for _, fromTable := range g.from.tables {
+		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
+			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
+		}
+	}
+	// drop change streams
 	for _, fromChangeStream := range g.from.changeStreams {
 		if _, exists := g.findChangeStreamByName(g.to, identsToComparable(fromChangeStream.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
@@ -330,20 +343,9 @@ func (g *Generator) GenerateDDL() DDL {
 			}
 			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); !exists {
 				ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
+				g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
 			}
 		}
-	}
-	for _, cs := range g.willCreateOrAlterChangeStreamIDs {
-		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(cs.Name))
-		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
-			ddl.Append(cs)
-			continue
-		}
-		if alteredState, hasAlteredState := g.alteredChangeStreamStates[identsToComparable(cs.Name)]; hasAlteredState {
-			fromChangeStream = alteredState
-		}
-
-		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
 	}
 	// for views
 	for _, toView := range g.to.views {
