@@ -535,7 +535,7 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 					continue
 				}
 			}
-			ddl.Append(&ast.DropChangeStream{Name: cs.Name})
+			ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
 			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
 		}
 	}

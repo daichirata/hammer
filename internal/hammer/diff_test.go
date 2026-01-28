@@ -2355,6 +2355,25 @@ CREATE CHANGE STREAM SomeStream FOR t2;
 				"DROP TABLE t1",
 			},
 		},
+		{
+			name: "drop table with change stream and grant",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE ROLE role1;
+CREATE CHANGE STREAM CS1 FOR t1;
+GRANT SELECT ON CHANGE STREAM CS1 TO ROLE role1;
+`,
+			to: `
+CREATE ROLE role1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP CHANGE STREAM CS1",
+				"DROP TABLE t1",
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
