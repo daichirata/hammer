@@ -329,8 +329,12 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	// drop change streams
 	for _, fromChangeStream := range g.from.changeStreams {
+		if g.isDropedChangeStream(identsToComparable(fromChangeStream.Name)) {
+			continue
+		}
 		if _, exists := g.findChangeStreamByName(g.to, identsToComparable(fromChangeStream.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
+			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(fromChangeStream.Name))
 		}
 	}
 	for _, fromTable := range g.from.tables {
