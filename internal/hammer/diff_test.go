@@ -2419,6 +2419,101 @@ CREATE TABLE t2 (
 				"DROP TABLE t1",
 			},
 		},
+		{
+			name: "drop two of three tables with multi-table change stream",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t3 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2, t3;
+`,
+			to: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR t1",
+				"DROP TABLE t2",
+				"DROP TABLE t3",
+			},
+		},
+		{
+			name: "change stream from table to FOR ALL with table drop",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR ALL;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR ALL",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "multiple change streams watching same table",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+CREATE CHANGE STREAM CS2 FOR t1;
+`,
+			to: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP CHANGE STREAM CS2",
+			},
+		},
+		{
+			name: "overlapping change streams on multiple tables",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2;
+CREATE CHANGE STREAM CS2 FOR t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t2;
+CREATE CHANGE STREAM CS2 FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR t2",
+				"DROP TABLE t1",
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
