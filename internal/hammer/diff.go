@@ -512,25 +512,31 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						break
 					}
 				}
+				// change stream が g.to に存在する場合のみ ALTER 処理を行う
+				// 存在しない場合（削除される場合）は DROP 処理に進む
 				if len(remainingTables) > 0 && hasRemainingTableInTarget {
-					alteredCS := &ChangeStream{
-						CreateChangeStream: &ast.CreateChangeStream{
-							Name:    cs.Name,
-							For:     &ast.ChangeStreamForTables{Tables: remainingTables},
-							Options: cs.Options,
-						},
-					}
-					g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
-
-					if _, willAlter := g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)]; !willAlter {
-						ddl.Append(&ast.AlterChangeStream{
-							Name: cs.Name,
-							ChangeStreamAlteration: &ast.ChangeStreamSetFor{
-								For: &ast.ChangeStreamForTables{Tables: remainingTables},
+					if _, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
+						alteredCS := &ChangeStream{
+							CreateChangeStream: &ast.CreateChangeStream{
+								Name:    cs.Name,
+								For:     &ast.ChangeStreamForTables{Tables: remainingTables},
+								Options: cs.Options,
 							},
-						})
+						}
+						g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
+
+						// willCreateOrAlterChangeStreamIDs に登録されている場合は
+						// ALTER文を出力しない（GenerateDDL で処理される）
+						if _, willAlter := g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)]; !willAlter {
+							ddl.Append(&ast.AlterChangeStream{
+								Name: cs.Name,
+								ChangeStreamAlteration: &ast.ChangeStreamSetFor{
+									For: &ast.ChangeStreamForTables{Tables: remainingTables},
+								},
+							})
+						}
+						continue
 					}
-					continue
 				}
 			}
 			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); exists {
