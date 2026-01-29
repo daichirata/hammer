@@ -513,12 +513,6 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 					}
 				}
 				if len(remainingTables) > 0 && hasRemainingTableInTarget {
-					ddl.Append(&ast.AlterChangeStream{
-						Name: cs.Name,
-						ChangeStreamAlteration: &ast.ChangeStreamSetFor{
-							For: &ast.ChangeStreamForTables{Tables: remainingTables},
-						},
-					})
 					alteredCS := &ChangeStream{
 						CreateChangeStream: &ast.CreateChangeStream{
 							Name:    cs.Name,
@@ -527,6 +521,15 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						},
 					}
 					g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
+
+					if _, willAlter := g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)]; !willAlter {
+						ddl.Append(&ast.AlterChangeStream{
+							Name: cs.Name,
+							ChangeStreamAlteration: &ast.ChangeStreamSetFor{
+								For: &ast.ChangeStreamForTables{Tables: remainingTables},
+							},
+						})
+					}
 					continue
 				}
 			}

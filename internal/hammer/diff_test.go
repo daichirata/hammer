@@ -2374,6 +2374,29 @@ CREATE ROLE role1;
 				"DROP TABLE t1",
 			},
 		},
+		{
+			name: "avoid duplicate alter change stream set for on drop table",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM SomeStream SET FOR t2",
+				"DROP TABLE t1",
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {
