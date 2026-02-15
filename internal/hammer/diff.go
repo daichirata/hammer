@@ -512,10 +512,10 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						break
 					}
 				}
-				// change stream が g.to に存在する場合のみ ALTER 処理を行う
-				// 存在しない場合（削除される場合）は DROP 処理に進む
+				// Only run ALTER when the change stream exists in g.to.
+				// If it does not exist in g.to (i.e. it will be dropped), continue to DROP logic.
 				if len(remainingTables) > 0 && hasRemainingTableInTarget {
-					if _, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
+					if toCS, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
 						alteredCS := &ChangeStream{
 							CreateChangeStream: &ast.CreateChangeStream{
 								Name:    cs.Name,
@@ -525,9 +525,10 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						}
 						g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
 
-						// willCreateOrAlterChangeStreamIDs に登録されている場合は
-						// ALTER文を出力しない（GenerateDDL で処理される）
-						if _, willAlter := g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)]; !willAlter {
+						// Do not emit ALTER here when it is already handled in GenerateDDL
+						// via willCreateOrAlterChangeStreamIDs.
+						// Also emit intermediate SET FOR only when the final target is FOR TABLES.
+						if _, willAlter := g.willCreateOrAlterChangeStreamIDs[identsToComparable(cs.Name)]; !willAlter && toCS.Type() == ChangeStreamTypeTables {
 							ddl.Append(&ast.AlterChangeStream{
 								Name: cs.Name,
 								ChangeStreamAlteration: &ast.ChangeStreamSetFor{
