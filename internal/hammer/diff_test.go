@@ -2544,6 +2544,52 @@ CREATE CHANGE STREAM CS1 FOR ALL;
 			},
 		},
 		{
+			name: "change stream from multi-table to FOR ALL with table drop",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR ALL;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR ALL",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "change stream from multi-table to none with table drop",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 DROP FOR ALL",
+				"DROP TABLE t1",
+			},
+		},
+		{
 			name: "multiple change streams watching same table",
 			from: `
 CREATE TABLE t1 (
