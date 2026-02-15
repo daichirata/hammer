@@ -1508,6 +1508,47 @@ CREATE CHANGE STREAM SomeStream;
 			expected:            []string{"DROP CHANGE STREAM SomeStream"},
 		},
 		{
+			name: "drop change stream with watch all",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "drop change stream with watch tables",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE CHANGE STREAM SomeStream FOR t1;
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "drop change stream with watch columns",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE CHANGE STREAM SomeStream FOR t1(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
 			name: "create change stream",
 			from: ``,
 			to: `
@@ -1607,7 +1648,7 @@ CREATE TABLE Albums (
 CREATE CHANGE STREAM SomeStream;
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{"DROP CHANGE STREAM SomeStream", "CREATE CHANGE STREAM SomeStream"},
+			expected:            []string{"ALTER CHANGE STREAM SomeStream DROP FOR ALL"},
 		},
 		{
 			name: "alter change stream watch table to all",
@@ -1651,9 +1692,8 @@ CREATE CHANGE STREAM SomeStream FOR Albums;
 				`CREATE TABLE Albums (
   id INT64 NOT NULL
 ) PRIMARY KEY (id)`,
-				"DROP CHANGE STREAM SomeStream",
+				"ALTER CHANGE STREAM SomeStream SET FOR Albums",
 				"DROP TABLE Singers",
-				`CREATE CHANGE STREAM SomeStream FOR Albums`,
 			},
 		},
 		{
@@ -1729,24 +1769,44 @@ CREATE CHANGE STREAM SomeStreamTwo FOR Singers;
 		{
 			name: "alter change stream option",
 			from: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES', exclude_ttl_deletes = false, exclude_insert = false, exclude_update = false, exclude_delete = false, allow_txn_exclusion = false );
 `,
 			to: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '5d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "5d", value_capture_type = "NEW_ROW")`},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "5d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
 		},
 		{
 			name: "alter change stream option to default",
 			from: `
-CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES' );
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '36h', value_capture_type = 'NEW_VALUES', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
 `,
 			to: `
 CREATE CHANGE STREAM SomeStream FOR ALL;
 `,
 			ignoreAlterDatabase: true,
-			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "1d", value_capture_type = "OLD_AND_NEW_VALUES")`},
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = null, value_capture_type = null, exclude_ttl_deletes = null, exclude_insert = null, exclude_update = null, exclude_delete = null, allow_txn_exclusion = null)`},
+		},
+		{
+			name: "create change stream with all options",
+			from: ``,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '7d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{`CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS (retention_period = "7d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
+		},
+		{
+			name: "alter change stream add all options",
+			from: `
+CREATE CHANGE STREAM SomeStream FOR ALL;
+`,
+			to: `
+CREATE CHANGE STREAM SomeStream FOR ALL OPTIONS( retention_period = '7d', value_capture_type = 'NEW_ROW', exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true );
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{`ALTER CHANGE STREAM SomeStream SET OPTIONS (retention_period = "7d", value_capture_type = "NEW_ROW", exclude_ttl_deletes = true, exclude_insert = true, exclude_update = true, exclude_delete = true, allow_txn_exclusion = true)`},
 		},
 		{
 			name: "both sides have identical fields of timestamp with a default value",
@@ -2322,6 +2382,210 @@ CREATE TABLE T1 (
 				`DROP TABLE T1`,
 				"CREATE TABLE T1 (\n  id INT64,\n  name STRING(100) NOT NULL\n) PRIMARY KEY (id, name)",
 				`CREATE CHANGE STREAM CS1 FOR T1`,
+			},
+		},
+		{
+			name: "drop change stream referenced by multiple tables",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{"DROP CHANGE STREAM SomeStream"},
+		},
+		{
+			name: "repoint change stream before dropping old table",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t1;
+`,
+			to: `
+CREATE TABLE t2 (
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t2_1);
+CREATE CHANGE STREAM SomeStream FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM SomeStream SET FOR t2",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "drop table with change stream and grant",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE ROLE role1;
+CREATE CHANGE STREAM CS1 FOR t1;
+GRANT SELECT ON CHANGE STREAM CS1 TO ROLE role1;
+`,
+			to: `
+CREATE ROLE role1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP CHANGE STREAM CS1",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "avoid duplicate alter change stream set for on drop table",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM SomeStream SET FOR t2",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "drop change stream when dropping table with remaining tables",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM SomeStream FOR t1, t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP CHANGE STREAM SomeStream",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "drop two of three tables with multi-table change stream",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t3 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2, t3;
+`,
+			to: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR t1",
+				"DROP TABLE t2",
+				"DROP TABLE t3",
+			},
+		},
+		{
+			name: "change stream from table to FOR ALL with table drop",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR ALL;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR ALL",
+				"DROP TABLE t1",
+			},
+		},
+		{
+			name: "multiple change streams watching same table",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+CREATE CHANGE STREAM CS2 FOR t1;
+`,
+			to: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP CHANGE STREAM CS2",
+			},
+		},
+		{
+			name: "overlapping change streams on multiple tables",
+			from: `
+CREATE TABLE t1 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t1, t2;
+CREATE CHANGE STREAM CS2 FOR t2;
+`,
+			to: `
+CREATE TABLE t2 (
+  id INT64 NOT NULL,
+) PRIMARY KEY(id);
+CREATE CHANGE STREAM CS1 FOR t2;
+CREATE CHANGE STREAM CS2 FOR t2;
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"ALTER CHANGE STREAM CS1 SET FOR t2",
+				"DROP TABLE t1",
 			},
 		},
 	}
