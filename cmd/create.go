@@ -44,10 +44,15 @@ var (
 			if err != nil {
 				return err
 			}
+			ignoreSequences, err := cmd.Flags().GetBool("ignore-sequences")
+			if err != nil {
+				return err
+			}
 			ddlOption := &hammer.DDLOption{
 				IgnoreAlterDatabase: ignoreAlterDatabase,
 				IgnoreChangeStreams: ignoreChangeStreams,
 				IgnoreModels:        ignoreModels,
+				IgnoreSequences:     ignoreSequences,
 			}
 
 			if hammer.Scheme(databaseURI) != "spanner" {
@@ -75,6 +80,7 @@ func init() {
 	createCmd.Flags().Bool("ignore-alter-database", false, "ignore alter database statements")
 	createCmd.Flags().Bool("ignore-change-streams", false, "ignore change streams statements")
 	createCmd.Flags().Bool("ignore-models", false, "ignore model statements")
+	createCmd.Flags().Bool("ignore-sequences", false, "ignore sequence statements")
 
 	rootCmd.AddCommand(createCmd)
 }

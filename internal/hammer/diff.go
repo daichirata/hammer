@@ -33,6 +33,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 func NewDatabase(ddl DDL) (*Database, error) {
 	var (
 		tables               []*Table
+		sequences            []*Sequence
 		changeStreams        []*ChangeStream
 		views                []*View
 		roles                []*Role
@@ -74,6 +75,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *ast.AlterDatabase:
 			alterDatabaseOptions = stmt
 			options = stmt.Options
+		case *ast.CreateSequence:
+			sequences = append(sequences, &Sequence{CreateSequence: stmt})
 		case *ast.CreateChangeStream:
 			switch forType := stmt.For.(type) {
 			case *ast.ChangeStreamForTables:
@@ -106,11 +109,12 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, sequences: sequences, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables               []*Table
+	sequences            []*Sequence
 	changeStreams        []*ChangeStream
 	views                []*View
 	roles                []*Role
@@ -224,6 +228,10 @@ type Grant struct {
 	*ast.Grant
 }
 
+type Sequence struct {
+	*ast.CreateSequence
+}
+
 type ChangeStream struct {
 	*ast.CreateChangeStream
 }
@@ -255,6 +263,7 @@ type Generator struct {
 	dropedTable                      []string
 	dropedIndex                      []string
 	dropedChangeStream               []string
+	droppedSequence                  []string
 	droppedConstraints               []*ast.TableConstraint
 	droppedGrant                     []*Grant
 	willCreateOrAlterChangeStreamIDs map[string]*ChangeStream
@@ -266,6 +275,17 @@ func (g *Generator) GenerateDDL() DDL {
 
 	// for alter database
 	ddl.AppendDDL(g.generateDDLForAlterDatabaseOptions())
+
+	// for sequences (CREATE and ALTER before tables, since tables may reference sequences)
+	for _, toSeq := range g.to.sequences {
+		name := identsToComparable(toSeq.Name.Idents...)
+		fromSeq, exists := g.findSequenceByName(g.from.sequences, name)
+		if !exists {
+			ddl.Append(toSeq.CreateSequence)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForAlterSequence(fromSeq, toSeq))
+	}
 
 	// for alter table
 	for _, toTable := range g.to.tables {
@@ -351,6 +371,18 @@ func (g *Generator) GenerateDDL() DDL {
 			}
 		}
 	}
+	// drop sequences (after table drops, since tables may reference sequences)
+	for _, fromSeq := range g.from.sequences {
+		name := identsToComparable(fromSeq.Name.Idents...)
+		if g.isDroppedSequence(name) {
+			continue
+		}
+		if _, exists := g.findSequenceByName(g.to.sequences, name); !exists {
+			ddl.Append(&ast.DropSequence{Name: fromSeq.Name})
+			g.droppedSequence = append(g.droppedSequence, name)
+		}
+	}
+
 	// for views
 	for _, toView := range g.to.views {
 		_, exists := g.findViewByName(g.from.views, identsToComparable(toView.Name.Idents...))
@@ -982,6 +1014,15 @@ func (g *Generator) isDropedChangeStream(name string) bool {
 	return false
 }
 
+func (g *Generator) isDroppedSequence(name string) bool {
+	for _, s := range g.droppedSequence {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *Generator) isDroppedGrant(grant *Grant) bool {
 	for _, dg := range g.droppedGrant {
 		if equalGrant(dg, grant) {
@@ -1310,6 +1351,57 @@ func (g *Generator) findChangeStreamByName(database *Database, name string) (cha
 		}
 	}
 	return
+}
+
+func (g *Generator) findSequenceByName(sequences []*Sequence, name string) (seq *Sequence, exists bool) {
+	for _, s := range sequences {
+		if strings.EqualFold(identsToComparable(s.Name.Idents...), name) {
+			seq = s
+			exists = true
+			break
+		}
+	}
+	return
+}
+
+func (g *Generator) sequenceParamsEqual(x, y []ast.SequenceParam) bool {
+	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+}
+
+func (g *Generator) generateDDLForAlterSequence(from, to *Sequence) DDL {
+	ddl := DDL{}
+
+	// If params changed, we need DROP + CREATE
+	if !g.sequenceParamsEqual(from.Params, to.Params) {
+		ddl.Append(&ast.DropSequence{Name: from.Name})
+		ddl.Append(to.CreateSequence)
+		g.droppedSequence = append(g.droppedSequence, identsToComparable(from.Name.Idents...))
+		return ddl
+	}
+
+	// If only options changed, use ALTER SEQUENCE SET OPTIONS
+	if !g.optionsEqual(from.Options, to.Options) {
+		options := to.Options
+		if options == nil {
+			options = &ast.Options{}
+		}
+		if from.Options != nil {
+			for _, r := range from.Options.Records {
+				if optionsValueFromName(to.Options, r.Name.Name) == nil {
+					options.Records = append(options.Records, &ast.OptionsDef{
+						Name:  &ast.Ident{Name: r.Name.Name},
+						Value: &ast.NullLiteral{},
+					})
+				}
+			}
+		}
+		ddl.Append(&ast.AlterSequence{
+			Name:    to.Name,
+			Options: options,
+		})
+	}
+
+	return ddl
 }
 
 func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL {

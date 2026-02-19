@@ -2634,6 +2634,95 @@ CREATE CHANGE STREAM CS2 FOR t2;
 				"DROP TABLE t1",
 			},
 		},
+		// sequence tests
+		{
+			name: "create sequence",
+			from: ``,
+			to: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				`CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive")`,
+			},
+		},
+		{
+			name: "drop sequence",
+			from: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			to:                  ``,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP SEQUENCE MySeq",
+			},
+		},
+		{
+			name: "no change sequence",
+			from: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			to: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			ignoreAlterDatabase: true,
+			expected:            []string{},
+		},
+		{
+			name: "alter sequence options",
+			from: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive", start_with_counter = 1000);
+`,
+			to: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive", start_with_counter = 5000);
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				`ALTER SEQUENCE MySeq SET OPTIONS (sequence_kind = "bit_reversed_positive", start_with_counter = 5000)`,
+			},
+		},
+		{
+			name: "alter sequence remove options",
+			from: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive", start_with_counter = 1000);
+`,
+			to: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				`ALTER SEQUENCE MySeq SET OPTIONS (sequence_kind = "bit_reversed_positive", start_with_counter = null)`,
+			},
+		},
+		{
+			name: "alter sequence params change drop and create",
+			from: `
+CREATE SEQUENCE MySeq BIT_REVERSED_POSITIVE OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			to: `
+CREATE SEQUENCE MySeq BIT_REVERSED_POSITIVE SKIP RANGE 1, 1000 OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				"DROP SEQUENCE MySeq",
+				`CREATE SEQUENCE MySeq BIT_REVERSED_POSITIVESKIP RANGE 1, 1000 OPTIONS (sequence_kind = "bit_reversed_positive")`,
+			},
+		},
+		{
+			name: "sequence created before table",
+			from: ``,
+			to: `
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+CREATE TABLE t1 (
+  id INT64 NOT NULL DEFAULT (GET_NEXT_SEQUENCE_VALUE(SEQUENCE MySeq)),
+) PRIMARY KEY(id);
+`,
+			ignoreAlterDatabase: true,
+			expected: []string{
+				`CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive")`,
+				"CREATE TABLE t1 (\n  id INT64 NOT NULL DEFAULT (GET_NEXT_SEQUENCE_VALUE(SEQUENCE MySeq))\n) PRIMARY KEY (id)",
+			},
+		},
 	}
 	for _, v := range values {
 		t.Run(v.name, func(t *testing.T) {

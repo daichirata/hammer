@@ -140,6 +140,35 @@ OPTIONS (
   Name STRING(10) NOT NULL
 ) PRIMARY KEY (UserID);`,
 		},
+		{
+			name: "parse sequence",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);
+
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			option: &hammer.DDLOption{},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL
+) PRIMARY KEY (UserID);
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");`,
+		},
+		{
+			name: "Ignore sequences",
+			schema: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+) PRIMARY KEY(UserID);
+
+CREATE SEQUENCE MySeq OPTIONS (sequence_kind = "bit_reversed_positive");
+`,
+			option: &hammer.DDLOption{
+				IgnoreSequences: true,
+			},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL
+) PRIMARY KEY (UserID);`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
