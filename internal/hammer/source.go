@@ -17,6 +17,7 @@ type DDLOption struct {
 	IgnoreAlterDatabase bool
 	IgnoreChangeStreams bool
 	IgnoreModels        bool
+	IgnoreSequences     bool
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
