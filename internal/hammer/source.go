@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 )
+
+// StdinURI is the special source URI that reads the schema from standard input.
+const StdinURI = "-"
 
 type Source interface {
 	String() string
@@ -21,6 +25,9 @@ type DDLOption struct {
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
+	if uri == StdinURI {
+		return NewReaderSource(uri, os.Stdin), nil
+	}
 	switch Scheme(uri) {
 	case "spanner":
 		return NewSpannerSource(ctx, uri)
@@ -82,6 +89,27 @@ func (s *FileSource) String() string {
 
 func (s *FileSource) DDL(_ context.Context, option *DDLOption) (DDL, error) {
 	schema, err := os.ReadFile(s.path)
+	if err != nil {
+		return DDL{}, err
+	}
+	return ParseDDL(s.uri, string(schema), option)
+}
+
+type ReaderSource struct {
+	uri    string
+	reader io.Reader
+}
+
+func NewReaderSource(uri string, reader io.Reader) *ReaderSource {
+	return &ReaderSource{uri: uri, reader: reader}
+}
+
+func (s *ReaderSource) String() string {
+	return s.uri
+}
+
+func (s *ReaderSource) DDL(_ context.Context, option *DDLOption) (DDL, error) {
+	schema, err := io.ReadAll(s.reader)
 	if err != nil {
 		return DDL{}, err
 	}
