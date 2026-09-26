@@ -13,6 +13,9 @@ var (
 * Create database and apply local schema (faster than running database creation and schema apply separately)
   hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
 
+* Create database and apply schema from standard input
+  cat /path/to/file | hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName -
+
 * Copy database
   hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName1 spanner://projects/projectId/instances/instanceId/databases/databaseName2`
 

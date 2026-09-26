@@ -14,6 +14,9 @@ var (
 * Compare local files
   hammer diff /path/to/file /another/path/to/file
 
+* Compare schema from standard input against spanner schema
+  cat /path/to/file | hammer diff - spanner://projects/projectId/instances/instanceId/databases/databaseName
+
 * Compare local file against spanner schema
   hammer diff /path/to/file spanner://projects/projectId/instances/instanceId/databases/databaseName
 
@@ -57,6 +60,10 @@ var (
 				IgnoreChangeStreams: ignoreChangeStreams,
 				IgnoreModels:        ignoreModels,
 				IgnoreProtoBundles:  ignoreProtoBundles,
+			}
+
+			if sourceURI1 == hammer.StdinURI && sourceURI2 == hammer.StdinURI {
+				return fmt.Errorf("standard input can only be used for one of SOURCE1 and SOURCE2")
 			}
 
 			source1, err := hammer.NewSource(ctx, sourceURI1)
