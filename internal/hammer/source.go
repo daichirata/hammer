@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 )
 
 // StdinURI is the special source URI that reads the schema from standard input.
@@ -112,6 +113,9 @@ func (s *ReaderSource) DDL(_ context.Context, option *DDLOption) (DDL, error) {
 	schema, err := io.ReadAll(s.reader)
 	if err != nil {
 		return DDL{}, err
+	}
+	if strings.TrimSpace(string(schema)) == "" {
+		return DDL{}, fmt.Errorf("%s: schema is empty", s.uri)
 	}
 	return ParseDDL(s.uri, string(schema), option)
 }

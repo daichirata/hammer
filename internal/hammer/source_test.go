@@ -39,3 +39,12 @@ func TestReaderSourceDDL(t *testing.T) {
 		t.Errorf("got: %q, want: %q", got, want)
 	}
 }
+
+func TestReaderSourceDDLEmpty(t *testing.T) {
+	for _, schema := range []string{"", " \n\t"} {
+		source := hammer.NewReaderSource("-", strings.NewReader(schema))
+		if _, err := source.DDL(context.Background(), &hammer.DDLOption{}); err == nil {
+			t.Errorf("expected error for schema %q", schema)
+		}
+	}
+}
