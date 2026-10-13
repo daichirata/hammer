@@ -12,7 +12,10 @@ import (
 var (
 	applyExample = `
 * Apply local schema file
-  hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file`
+  hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
+
+* Apply schema from standard input
+  cat /path/to/file | hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName -`
 
 	applyCmd = &cobra.Command{
 		Use:     "apply DATABASE SOURCE",

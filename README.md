@@ -33,14 +33,23 @@ Examples:
 * Apply local schema file
   hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
 
+* Apply schema from standard input
+  cat /path/to/file | hammer apply spanner://projects/projectId/instances/instanceId/databases/databaseName -
+
 * Create database and apply local schema (faster than running database creation and schema apply separately)
   hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName /path/to/file
+
+* Create database and apply schema from standard input
+  cat /path/to/file | hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName -
 
 * Copy database
   hammer create spanner://projects/projectId/instances/instanceId/databases/databaseName1 spanner://projects/projectId/instances/instanceId/databases/databaseName2
 
 * Compare local files
   hammer diff /path/to/file /another/path/to/file
+
+* Compare schema from standard input against spanner schema
+  cat /path/to/file | hammer diff - spanner://projects/projectId/instances/instanceId/databases/databaseName
 
 * Compare local file against spanner schema
   hammer diff /path/to/file spanner://projects/projectId/instances/instanceId/databases/databaseName
