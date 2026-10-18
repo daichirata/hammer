@@ -635,32 +635,25 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
 	ddl := DDL{}
 
-	switch {
-	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy != nil:
-		if g.createRowDeletionPolicyEqual(from.RowDeletionPolicy, to.RowDeletionPolicy) {
-			return ddl
-		}
-		ddl.Append(&ast.AlterTable{
-			Name: to.Name,
-			TableAlteration: &ast.ReplaceRowDeletionPolicy{
-				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
-			},
-		})
-	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy == nil:
-		ddl.Append(&ast.AlterTable{
-			Name:            to.Name,
-			TableAlteration: &ast.DropRowDeletionPolicy{},
-		})
-	case from.RowDeletionPolicy == nil && to.RowDeletionPolicy != nil:
-		ddl.Append(&ast.AlterTable{
-			Name: to.Name,
-			TableAlteration: &ast.AddRowDeletionPolicy{
-				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
-			},
-		})
+	if alteration := g.rowDeletionPolicyAlteration(from.RowDeletionPolicy, to.RowDeletionPolicy); alteration != nil {
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: alteration})
 	}
-
 	return ddl
+}
+
+func (g *Generator) rowDeletionPolicyAlteration(from, to *ast.CreateRowDeletionPolicy) ast.TableAlteration {
+	switch {
+	case from != nil && to != nil:
+		if g.createRowDeletionPolicyEqual(from, to) {
+			return nil
+		}
+		return &ast.ReplaceRowDeletionPolicy{RowDeletionPolicy: to.RowDeletionPolicy}
+	case from != nil && to == nil:
+		return &ast.DropRowDeletionPolicy{}
+	case from == nil && to != nil:
+		return &ast.AddRowDeletionPolicy{RowDeletionPolicy: to.RowDeletionPolicy}
+	}
+	return nil
 }
 
 func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
@@ -1024,19 +1017,7 @@ func (g *Generator) interleaveEqual(x, y *Table) bool {
 func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 	xPrimaryKeys := primaryKeysForComparison(x)
 	yPrimaryKeys := primaryKeysForComparison(y)
-	if !cmp.Equal(xPrimaryKeys, yPrimaryKeys,
-		cmpopts.IgnoreTypes(token.Pos(0)),
-		cmp.Comparer(func(a, b *ast.IndexKey) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.Dir == "" {
-				aVal.Dir = ast.DirectionAsc
-			}
-			if bVal.Dir == "" {
-				bVal.Dir = ast.DirectionAsc
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
-		})) {
+	if !g.indexKeysEqual(xPrimaryKeys, yPrimaryKeys) {
 		return false
 	}
 	for _, pk := range yPrimaryKeys {
@@ -1053,6 +1034,22 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 		}
 	}
 	return true
+}
+
+func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
+	return cmp.Equal(x, y,
+		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmp.Comparer(func(a, b *ast.IndexKey) bool {
+			aVal := *a
+			bVal := *b
+			if aVal.Dir == "" {
+				aVal.Dir = ast.DirectionAsc
+			}
+			if bVal.Dir == "" {
+				bVal.Dir = ast.DirectionAsc
+			}
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+		}))
 }
 
 // primaryKeysForComparison folds the inline `id INT64 PRIMARY KEY` column-def
@@ -1480,23 +1477,29 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
 	}
 	if !g.optionsEqual(from.Options, to.Options) {
-		options := to.Options
-		if options == nil {
-			options = &ast.Options{}
-		}
-		if from.Options != nil {
-			for _, r := range from.Options.Records {
-				if optionsValueFromName(to.Options, r.Name.Name) == nil {
-					options.Records = append(options.Records, &ast.OptionsDef{
-						Name:  &ast.Ident{Name: r.Name.Name},
-						Value: &ast.NullLiteral{},
-					})
-				}
-			}
-		}
-		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: options}})
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: optionsForSet(from.Options, to.Options)}})
 	}
 	return ddl
+}
+
+// optionsForSet returns the options for SET OPTIONS that turn from into to.
+// It resets the options that exist only in from to null.
+func optionsForSet(from, to *ast.Options) *ast.Options {
+	options := &ast.Options{}
+	if to != nil {
+		options.Records = append(options.Records, to.Records...)
+	}
+	if from != nil {
+		for _, r := range from.Records {
+			if optionsValueFromName(to, r.Name.Name) == nil {
+				options.Records = append(options.Records, &ast.OptionsDef{
+					Name:  &ast.Ident{Name: r.Name.Name},
+					Value: &ast.NullLiteral{},
+				})
+			}
+		}
+	}
+	return options
 }
 
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
