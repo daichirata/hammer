@@ -34,6 +34,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
+		queues               []*Queue
 		roles                []*Role
 		grants               []*Grant
 		alterDatabaseOptions *ast.AlterDatabase
@@ -87,6 +88,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *ast.CreateView:
 			v := &View{CreateView: stmt}
 			views = append(views, v)
+		case *ast.CreateQueue:
+			queues = append(queues, &Queue{CreateQueue: stmt})
 		case *ast.CreateRole:
 			roles = append(roles, &Role{CreateRole: stmt})
 		case *ast.Grant:
@@ -104,14 +107,24 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			}
 		}
 	}
+	for _, q := range queues {
+		if i := q.Cluster; i != nil {
+			if p, ok := m[identsToComparable(i.TableName.Idents...)]; ok {
+				p.queues = append(p.queues, q)
+			} else {
+				return nil, fmt.Errorf("parent ddl %s not found", i.TableName.SQL())
+			}
+		}
+	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, views: views, queues: queues, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables               []*Table
 	changeStreams        []*ChangeStream
 	views                []*View
+	queues               []*Queue
 	roles                []*Role
 	grants               []*Grant
 	alterDatabaseOptions *ast.AlterDatabase
@@ -208,7 +221,12 @@ type Table struct {
 	indexes       []*ast.CreateIndex
 	searchIndexes []*ast.CreateSearchIndex
 	children      []*Table
+	queues        []*Queue
 	changeStreams []*ChangeStream
+}
+
+type Queue struct {
+	*ast.CreateQueue
 }
 
 type View struct {
@@ -254,6 +272,7 @@ type Generator struct {
 	dropedTable                    []string
 	dropedIndex                    []string
 	dropedChangeStream             []string
+	droppedQueue                   []string
 	droppedConstraints             []*ast.TableConstraint
 	droppedGrant                   []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
@@ -305,6 +324,22 @@ func (g *Generator) GenerateDDL() DDL {
 		fromTable, _ := g.findTableByName(g.from.tables, identsToComparable(toTable.Name.Idents...))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 	}
+	// for queues
+	for _, toQueue := range g.to.queues {
+		name := identsToComparable(toQueue.Name.Idents...)
+		fromQueue, exists := g.findQueueByName(g.from.queues, name)
+		if !exists || g.isDroppedQueue(name) {
+			ddl.Append(toQueue)
+			continue
+		}
+		// ALTER QUEUE cannot change columns, primary keys or the parent table.
+		if !g.queueColumnsEqual(fromQueue, toQueue) || !queueInterleaveAlterable(fromQueue.Cluster, toQueue.Cluster) {
+			ddl.AppendDDL(g.generateDDLForDropQueue(fromQueue))
+			ddl.Append(toQueue)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForAlterQueue(fromQueue, toQueue))
+	}
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(toChangeStream.Name))
@@ -324,6 +359,16 @@ func (g *Generator) GenerateDDL() DDL {
 			fromChangeStream = alteredState
 		}
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
+	}
+	// drop queues
+	for _, fromQueue := range g.from.queues {
+		name := identsToComparable(fromQueue.Name.Idents...)
+		if g.isDroppedQueue(name) {
+			continue
+		}
+		if _, exists := g.findQueueByName(g.to.queues, name); !exists {
+			ddl.AppendDDL(g.generateDDLForDropQueue(fromQueue))
+		}
 	}
 	// drop tables
 	for _, fromTable := range g.from.tables {
@@ -510,6 +555,11 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	for _, t := range table.children {
 		ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(t))
 	}
+	for _, q := range table.queues {
+		if !g.isDroppedQueue(identsToComparable(q.Name.Idents...)) {
+			ddl.AppendDDL(g.generateDDLForDropQueue(q))
+		}
+	}
 	for _, i := range table.indexes {
 		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
@@ -641,7 +691,13 @@ func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
 	return ddl
 }
 
-func (g *Generator) rowDeletionPolicyAlteration(from, to *ast.CreateRowDeletionPolicy) ast.TableAlteration {
+// rowDeletionPolicyAlteration is an alteration that both ALTER TABLE and ALTER QUEUE accept.
+type rowDeletionPolicyAlteration interface {
+	ast.TableAlteration
+	ast.QueueAlteration
+}
+
+func (g *Generator) rowDeletionPolicyAlteration(from, to *ast.CreateRowDeletionPolicy) rowDeletionPolicyAlteration {
 	switch {
 	case from != nil && to != nil:
 		if g.createRowDeletionPolicyEqual(from, to) {
@@ -1514,6 +1570,95 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 	}
 
 	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
+	return ddl
+}
+
+func (g *Generator) findQueueByName(queues []*Queue, name string) (queue *Queue, exists bool) {
+	for _, q := range queues {
+		if strings.EqualFold(identsToComparable(q.Name.Idents...), name) {
+			return q, true
+		}
+	}
+	return nil, false
+}
+
+func (g *Generator) isDroppedQueue(name string) bool {
+	for _, q := range g.droppedQueue {
+		if strings.EqualFold(q, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) queueColumnsEqual(x, y *Queue) bool {
+	if !g.indexKeysEqual(x.PrimaryKeys, y.PrimaryKeys) {
+		return false
+	}
+	if len(x.Columns) != len(y.Columns) {
+		return false
+	}
+	for _, yCol := range y.Columns {
+		xCol, exists := g.findColumnByName(x.Columns, identsToComparable(yCol.Name))
+		if !exists || isColHidden(xCol) != isColHidden(yCol) || !g.columnDefEqual(xCol, yCol) {
+			return false
+		}
+	}
+	return true
+}
+
+// queueInterleaveAlterable reports whether ALTER QUEUE can turn the interleave x into y.
+// ALTER QUEUE can change PARENT and ON DELETE, but not the parent table itself.
+func queueInterleaveAlterable(x, y *ast.Cluster) bool {
+	if x == nil || y == nil {
+		return x == y
+	}
+	return identsToComparable(x.TableName.Idents...) == identsToComparable(y.TableName.Idents...)
+}
+
+func queueOnDelete(c *ast.Cluster) ast.OnDeleteAction {
+	if !c.Enforced {
+		return ""
+	}
+	if c.OnDelete == "" {
+		return ast.OnDeleteNoAction
+	}
+	return c.OnDelete
+}
+
+func (g *Generator) generateDDLForAlterQueue(from, to *Queue) DDL {
+	ddl := DDL{}
+
+	if x, y := from.Cluster, to.Cluster; x != nil && y != nil {
+		switch {
+		case x.Enforced == y.Enforced && queueOnDelete(x) == queueOnDelete(y):
+			// The interleave has not changed.
+		case x.Enforced && y.Enforced:
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetOnDelete{OnDelete: queueOnDelete(y)}})
+		case !x.Enforced && queueOnDelete(y) == ast.OnDeleteCascade:
+			// Spanner cannot change INTERLEAVE IN to INTERLEAVE IN PARENT ON DELETE CASCADE in one step.
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetInterleaveIn{TableName: y.TableName, Enforced: true, OnDelete: ast.OnDeleteNoAction}})
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetOnDelete{OnDelete: ast.OnDeleteCascade}})
+		default:
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetInterleaveIn{TableName: y.TableName, Enforced: y.Enforced, OnDelete: y.OnDelete}})
+		}
+	}
+
+	if alteration := g.rowDeletionPolicyAlteration(from.RowDeletionPolicy, to.RowDeletionPolicy); alteration != nil {
+		ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: alteration})
+	}
+
+	if !g.optionsEqual(from.Options, to.Options) {
+		ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.QueueSetOptions{Options: optionsForSet(from.Options, to.Options)}})
+	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
+	ddl := DDL{}
+
+	ddl.Append(&ast.DropQueue{Name: queue.Name})
+	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
 	return ddl
 }
 
