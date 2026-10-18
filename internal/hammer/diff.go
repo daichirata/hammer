@@ -54,7 +54,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
 		case *ast.CreateSearchIndex:
-			if t, ok := m[identsToComparable(stmt.TableName)]; ok {
+			if t, ok := m[identsToComparable(stmt.TableName.Idents...)]; ok {
 				t.searchIndexes = append(t.searchIndexes, stmt)
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply search index %s", stmt.Name.SQL())
@@ -126,7 +126,7 @@ func (d *Database) grantsOnTable(table *Table) []*Grant {
 		switch p := grant.Grant.Privilege.(type) {
 		case *ast.PrivilegeOnTable:
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -144,7 +144,7 @@ func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
 		switch p := grant.Grant.Privilege.(type) {
 		case *ast.PrivilegeOnTable:
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -160,7 +160,7 @@ func (d *Database) grantsOnView(view *View) []*Grant {
 	for _, grant := range d.grants {
 		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView); exists {
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -177,7 +177,7 @@ func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 	for _, grant := range d.grants {
 		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream); exists {
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -784,7 +784,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	searchIndexes := []*ast.CreateSearchIndex{}
 	for _, i := range g.findSearchIndexByColumn(from.searchIndexes, identsToComparable(fromCol.Name)) {
-		if !g.isDropedIndex(identsToComparable(i.Name)) {
+		if !g.isDropedIndex(identsToComparable(i.Name.Idents...)) {
 			searchIndexes = append(searchIndexes, i)
 		}
 	}
@@ -828,17 +828,17 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	}
 
 	for _, toIndex := range to.searchIndexes {
-		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name.Idents...))
 
 		if exists && !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	for _, fromIndex := range from.searchIndexes {
-		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name)); !exists {
+		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name.Idents...)); !exists {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 
@@ -857,7 +857,7 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	}
 
 	for _, toIndex := range to.searchIndexes {
-		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name.Idents...))
 
 		if !exists || !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
@@ -1356,7 +1356,7 @@ func indexReferencesColumn(i *ast.CreateIndex, column string) bool {
 
 func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (index *ast.CreateSearchIndex, exists bool) {
 	for _, i := range indexes {
-		if identsToComparable(i.Name) == name {
+		if identsToComparable(i.Name.Idents...) == name {
 			return i, true
 		}
 	}
@@ -1618,7 +1618,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 	switch p := grant.Grant.Privilege.(type) {
 	case *ast.PrivilegeOnTable:
 		for _, name := range p.Names {
-			if _, exists := g.findTableByName(database.tables, identsToComparable(name)); exists {
+			if _, exists := g.findTableByName(database.tables, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1626,7 +1626,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 
 	case *ast.SelectPrivilegeOnView:
 		for _, name := range p.Names {
-			if _, exists := g.findViewByName(database.views, identsToComparable(name)); exists {
+			if _, exists := g.findViewByName(database.views, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1634,7 +1634,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 
 	case *ast.SelectPrivilegeOnChangeStream:
 		for _, name := range p.Names {
-			if _, exists := g.findChangeStreamByName(database, identsToComparable(name)); exists {
+			if _, exists := g.findChangeStreamByName(database, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1678,19 +1678,19 @@ func equalPrivilege(a, b ast.Privilege) bool {
 	switch aTyped := a.(type) {
 	case *ast.PrivilegeOnTable:
 		bTyped := b.(*ast.PrivilegeOnTable)
-		if !equalIdentLists(aTyped.Names, bTyped.Names) {
+		if !equalPathLists(aTyped.Names, bTyped.Names) {
 			return false
 		}
 		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
 	case *ast.SelectPrivilegeOnChangeStream:
 		bTyped := b.(*ast.SelectPrivilegeOnChangeStream)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.SelectPrivilegeOnView:
 		bTyped := b.(*ast.SelectPrivilegeOnView)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.ExecutePrivilegeOnTableFunction:
 		bTyped := b.(*ast.ExecutePrivilegeOnTableFunction)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.RolePrivilege:
 		bTyped := b.(*ast.RolePrivilege)
 		return equalIdentLists(aTyped.Names, bTyped.Names)
@@ -1734,6 +1734,18 @@ func matchTablePrivilege(a, b ast.TablePrivilege) bool {
 
 func equalIdentLists(a, b []*ast.Ident) bool {
 	return identsToComparable(a...) == identsToComparable(b...)
+}
+
+func equalPathLists(a, b []*ast.Path) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if identsToComparable(a[i].Idents...) != identsToComparable(b[i].Idents...) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
