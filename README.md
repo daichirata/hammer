@@ -148,6 +148,15 @@ CREATE INDEX idx_users_name ON users(name);
 - When altering a nullable column to add the NOT NULL attribute, hammer update the column with the default value, and then add the NOT NULL attribute. (e.g. email)
 - When adding a column with the NOT NULL attribute without the DEFAULT attribute, hammer add a default value to the column implicitly, and then drop the DEFAULT attribute. (e.g. name)
 
+### Queues
+
+Hammer changes options, row deletion policies, and the PARENT and ON DELETE clauses of a queue with ALTER QUEUE.
+ALTER QUEUE cannot change columns, primary keys, or the parent table, so hammer drops and recreates the queue for these changes.
+Hammer also drops and recreates a queue when it recreates the parent table of the queue.
+The recreation deletes all messages in the queue.
+Spanner does not fully support dropping and recreating a queue with the same name, and the `RECEIVE` function of the queue may take some time to become available again.
+See [Spanner queues overview](https://cloud.google.com/spanner/docs/queues/queues-overview) for details.
+
 ## LICENSE
 
 Unless otherwise noted, the hammer source files are distributed under the MIT License found in the LICENSE file.

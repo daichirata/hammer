@@ -34,6 +34,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
+		queues               []*Queue
 		roles                []*Role
 		grants               []*Grant
 		alterDatabaseOptions *ast.AlterDatabase
@@ -54,7 +55,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 				return nil, fmt.Errorf("cannot find ddl of table to apply index %s", stmt.Name.SQL())
 			}
 		case *ast.CreateSearchIndex:
-			if t, ok := m[identsToComparable(stmt.TableName)]; ok {
+			if t, ok := m[identsToComparable(stmt.TableName.Idents...)]; ok {
 				t.searchIndexes = append(t.searchIndexes, stmt)
 			} else {
 				return nil, fmt.Errorf("cannot find ddl of table to apply search index %s", stmt.Name.SQL())
@@ -87,6 +88,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		case *ast.CreateView:
 			v := &View{CreateView: stmt}
 			views = append(views, v)
+		case *ast.CreateQueue:
+			queues = append(queues, &Queue{CreateQueue: stmt})
 		case *ast.CreateRole:
 			roles = append(roles, &Role{CreateRole: stmt})
 		case *ast.Grant:
@@ -104,14 +107,24 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			}
 		}
 	}
+	for _, q := range queues {
+		if i := q.Cluster; i != nil {
+			if p, ok := m[identsToComparable(i.TableName.Idents...)]; ok {
+				p.queues = append(p.queues, q)
+			} else {
+				return nil, fmt.Errorf("parent ddl %s not found", i.TableName.SQL())
+			}
+		}
+	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{tables: tables, changeStreams: changeStreams, views: views, queues: queues, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
 	tables               []*Table
 	changeStreams        []*ChangeStream
 	views                []*View
+	queues               []*Queue
 	roles                []*Role
 	grants               []*Grant
 	alterDatabaseOptions *ast.AlterDatabase
@@ -126,7 +139,7 @@ func (d *Database) grantsOnTable(table *Table) []*Grant {
 		switch p := grant.Grant.Privilege.(type) {
 		case *ast.PrivilegeOnTable:
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -144,7 +157,7 @@ func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
 		switch p := grant.Grant.Privilege.(type) {
 		case *ast.PrivilegeOnTable:
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -160,7 +173,7 @@ func (d *Database) grantsOnView(view *View) []*Grant {
 	for _, grant := range d.grants {
 		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView); exists {
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -177,7 +190,7 @@ func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 	for _, grant := range d.grants {
 		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream); exists {
 			for _, name := range p.Names {
-				if identsToComparable(name) == target {
+				if identsToComparable(name.Idents...) == target {
 					result = append(result, grant)
 					break
 				}
@@ -208,7 +221,12 @@ type Table struct {
 	indexes       []*ast.CreateIndex
 	searchIndexes []*ast.CreateSearchIndex
 	children      []*Table
+	queues        []*Queue
 	changeStreams []*ChangeStream
+}
+
+type Queue struct {
+	*ast.CreateQueue
 }
 
 type View struct {
@@ -254,6 +272,7 @@ type Generator struct {
 	dropedTable                    []string
 	dropedIndex                    []string
 	dropedChangeStream             []string
+	droppedQueue                   []string
 	droppedConstraints             []*ast.TableConstraint
 	droppedGrant                   []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
@@ -305,6 +324,22 @@ func (g *Generator) GenerateDDL() DDL {
 		fromTable, _ := g.findTableByName(g.from.tables, identsToComparable(toTable.Name.Idents...))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 	}
+	// for queues
+	for _, toQueue := range g.to.queues {
+		name := identsToComparable(toQueue.Name.Idents...)
+		fromQueue, exists := g.findQueueByName(g.from.queues, name)
+		if !exists || g.isDroppedQueue(name) {
+			ddl.Append(toQueue)
+			continue
+		}
+		// ALTER QUEUE cannot change columns, primary keys or the parent table.
+		if !g.queueColumnsEqual(fromQueue, toQueue) || !queueInterleaveAlterable(fromQueue.Cluster, toQueue.Cluster) {
+			ddl.AppendDDL(g.generateDDLForDropQueue(fromQueue))
+			ddl.Append(toQueue)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForAlterQueue(fromQueue, toQueue))
+	}
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(toChangeStream.Name))
@@ -324,6 +359,16 @@ func (g *Generator) GenerateDDL() DDL {
 			fromChangeStream = alteredState
 		}
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
+	}
+	// drop queues
+	for _, fromQueue := range g.from.queues {
+		name := identsToComparable(fromQueue.Name.Idents...)
+		if g.isDroppedQueue(name) {
+			continue
+		}
+		if _, exists := g.findQueueByName(g.to.queues, name); !exists {
+			ddl.AppendDDL(g.generateDDLForDropQueue(fromQueue))
+		}
 	}
 	// drop tables
 	for _, fromTable := range g.from.tables {
@@ -510,6 +555,11 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 	for _, t := range table.children {
 		ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(t))
 	}
+	for _, q := range table.queues {
+		if !g.isDroppedQueue(identsToComparable(q.Name.Idents...)) {
+			ddl.AppendDDL(g.generateDDLForDropQueue(q))
+		}
+	}
 	for _, i := range table.indexes {
 		ddl.Append(&ast.DropIndex{Name: i.Name})
 	}
@@ -635,32 +685,31 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 func (g *Generator) generateDDLForRowDeletionPolicy(from, to *Table) DDL {
 	ddl := DDL{}
 
-	switch {
-	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy != nil:
-		if g.createRowDeletionPolicyEqual(from.RowDeletionPolicy, to.RowDeletionPolicy) {
-			return ddl
-		}
-		ddl.Append(&ast.AlterTable{
-			Name: to.Name,
-			TableAlteration: &ast.ReplaceRowDeletionPolicy{
-				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
-			},
-		})
-	case from.RowDeletionPolicy != nil && to.RowDeletionPolicy == nil:
-		ddl.Append(&ast.AlterTable{
-			Name:            to.Name,
-			TableAlteration: &ast.DropRowDeletionPolicy{},
-		})
-	case from.RowDeletionPolicy == nil && to.RowDeletionPolicy != nil:
-		ddl.Append(&ast.AlterTable{
-			Name: to.Name,
-			TableAlteration: &ast.AddRowDeletionPolicy{
-				RowDeletionPolicy: to.RowDeletionPolicy.RowDeletionPolicy,
-			},
-		})
+	if alteration := g.rowDeletionPolicyAlteration(from.RowDeletionPolicy, to.RowDeletionPolicy); alteration != nil {
+		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: alteration})
 	}
-
 	return ddl
+}
+
+// rowDeletionPolicyAlteration is an alteration that both ALTER TABLE and ALTER QUEUE accept.
+type rowDeletionPolicyAlteration interface {
+	ast.TableAlteration
+	ast.QueueAlteration
+}
+
+func (g *Generator) rowDeletionPolicyAlteration(from, to *ast.CreateRowDeletionPolicy) rowDeletionPolicyAlteration {
+	switch {
+	case from != nil && to != nil:
+		if g.createRowDeletionPolicyEqual(from, to) {
+			return nil
+		}
+		return &ast.ReplaceRowDeletionPolicy{RowDeletionPolicy: to.RowDeletionPolicy}
+	case from != nil && to == nil:
+		return &ast.DropRowDeletionPolicy{}
+	case from == nil && to != nil:
+		return &ast.AddRowDeletionPolicy{RowDeletionPolicy: to.RowDeletionPolicy}
+	}
+	return nil
 }
 
 func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
@@ -784,7 +833,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	searchIndexes := []*ast.CreateSearchIndex{}
 	for _, i := range g.findSearchIndexByColumn(from.searchIndexes, identsToComparable(fromCol.Name)) {
-		if !g.isDropedIndex(identsToComparable(i.Name)) {
+		if !g.isDropedIndex(identsToComparable(i.Name.Idents...)) {
 			searchIndexes = append(searchIndexes, i)
 		}
 	}
@@ -828,17 +877,17 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 	}
 
 	for _, toIndex := range to.searchIndexes {
-		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name.Idents...))
 
 		if exists && !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	for _, fromIndex := range from.searchIndexes {
-		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name)); !exists {
+		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name.Idents...)); !exists {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name))
+			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 
@@ -857,7 +906,7 @@ func (g *Generator) generateDDLForCreateIndex(from, to *Table) DDL {
 	}
 
 	for _, toIndex := range to.searchIndexes {
-		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name))
+		fromIndex, exists := g.findSearchIndexByName(from.searchIndexes, identsToComparable(toIndex.Name.Idents...))
 
 		if !exists || !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(toIndex)
@@ -1024,19 +1073,7 @@ func (g *Generator) interleaveEqual(x, y *Table) bool {
 func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 	xPrimaryKeys := primaryKeysForComparison(x)
 	yPrimaryKeys := primaryKeysForComparison(y)
-	if !cmp.Equal(xPrimaryKeys, yPrimaryKeys,
-		cmpopts.IgnoreTypes(token.Pos(0)),
-		cmp.Comparer(func(a, b *ast.IndexKey) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.Dir == "" {
-				aVal.Dir = ast.DirectionAsc
-			}
-			if bVal.Dir == "" {
-				bVal.Dir = ast.DirectionAsc
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
-		})) {
+	if !g.indexKeysEqual(xPrimaryKeys, yPrimaryKeys) {
 		return false
 	}
 	for _, pk := range yPrimaryKeys {
@@ -1053,6 +1090,22 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 		}
 	}
 	return true
+}
+
+func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
+	return cmp.Equal(x, y,
+		cmpopts.IgnoreTypes(token.Pos(0)),
+		cmp.Comparer(func(a, b *ast.IndexKey) bool {
+			aVal := *a
+			bVal := *b
+			if aVal.Dir == "" {
+				aVal.Dir = ast.DirectionAsc
+			}
+			if bVal.Dir == "" {
+				bVal.Dir = ast.DirectionAsc
+			}
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+		}))
 }
 
 // primaryKeysForComparison folds the inline `id INT64 PRIMARY KEY` column-def
@@ -1356,7 +1409,7 @@ func indexReferencesColumn(i *ast.CreateIndex, column string) bool {
 
 func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (index *ast.CreateSearchIndex, exists bool) {
 	for _, i := range indexes {
-		if identsToComparable(i.Name) == name {
+		if identsToComparable(i.Name.Idents...) == name {
 			return i, true
 		}
 	}
@@ -1480,23 +1533,29 @@ func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL 
 		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetFor{For: to.For}})
 	}
 	if !g.optionsEqual(from.Options, to.Options) {
-		options := to.Options
-		if options == nil {
-			options = &ast.Options{}
-		}
-		if from.Options != nil {
-			for _, r := range from.Options.Records {
-				if optionsValueFromName(to.Options, r.Name.Name) == nil {
-					options.Records = append(options.Records, &ast.OptionsDef{
-						Name:  &ast.Ident{Name: r.Name.Name},
-						Value: &ast.NullLiteral{},
-					})
-				}
-			}
-		}
-		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: options}})
+		ddl.Append(&ast.AlterChangeStream{Name: to.Name, ChangeStreamAlteration: &ast.ChangeStreamSetOptions{Options: optionsForSet(from.Options, to.Options)}})
 	}
 	return ddl
+}
+
+// optionsForSet returns the options for SET OPTIONS that turn from into to.
+// It resets the options that exist only in from to null.
+func optionsForSet(from, to *ast.Options) *ast.Options {
+	options := &ast.Options{}
+	if to != nil {
+		options.Records = append(options.Records, to.Records...)
+	}
+	if from != nil {
+		for _, r := range from.Records {
+			if optionsValueFromName(to, r.Name.Name) == nil {
+				options.Records = append(options.Records, &ast.OptionsDef{
+					Name:  &ast.Ident{Name: r.Name.Name},
+					Value: &ast.NullLiteral{},
+				})
+			}
+		}
+	}
+	return options
 }
 
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
@@ -1511,6 +1570,95 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 	}
 
 	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
+	return ddl
+}
+
+func (g *Generator) findQueueByName(queues []*Queue, name string) (queue *Queue, exists bool) {
+	for _, q := range queues {
+		if strings.EqualFold(identsToComparable(q.Name.Idents...), name) {
+			return q, true
+		}
+	}
+	return nil, false
+}
+
+func (g *Generator) isDroppedQueue(name string) bool {
+	for _, q := range g.droppedQueue {
+		if strings.EqualFold(q, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) queueColumnsEqual(x, y *Queue) bool {
+	if !g.indexKeysEqual(x.PrimaryKeys, y.PrimaryKeys) {
+		return false
+	}
+	if len(x.Columns) != len(y.Columns) {
+		return false
+	}
+	for _, yCol := range y.Columns {
+		xCol, exists := g.findColumnByName(x.Columns, identsToComparable(yCol.Name))
+		if !exists || isColHidden(xCol) != isColHidden(yCol) || !g.columnDefEqual(xCol, yCol) {
+			return false
+		}
+	}
+	return true
+}
+
+// queueInterleaveAlterable reports whether ALTER QUEUE can turn the interleave x into y.
+// ALTER QUEUE can change PARENT and ON DELETE, but not the parent table itself.
+func queueInterleaveAlterable(x, y *ast.Cluster) bool {
+	if x == nil || y == nil {
+		return x == y
+	}
+	return identsToComparable(x.TableName.Idents...) == identsToComparable(y.TableName.Idents...)
+}
+
+func queueOnDelete(c *ast.Cluster) ast.OnDeleteAction {
+	if !c.Enforced {
+		return ""
+	}
+	if c.OnDelete == "" {
+		return ast.OnDeleteNoAction
+	}
+	return c.OnDelete
+}
+
+func (g *Generator) generateDDLForAlterQueue(from, to *Queue) DDL {
+	ddl := DDL{}
+
+	if x, y := from.Cluster, to.Cluster; x != nil && y != nil {
+		switch {
+		case x.Enforced == y.Enforced && queueOnDelete(x) == queueOnDelete(y):
+			// The interleave has not changed.
+		case x.Enforced && y.Enforced:
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetOnDelete{OnDelete: queueOnDelete(y)}})
+		case !x.Enforced && queueOnDelete(y) == ast.OnDeleteCascade:
+			// Spanner cannot change INTERLEAVE IN to INTERLEAVE IN PARENT ON DELETE CASCADE in one step.
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetInterleaveIn{TableName: y.TableName, Enforced: true, OnDelete: ast.OnDeleteNoAction}})
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetOnDelete{OnDelete: ast.OnDeleteCascade}})
+		default:
+			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetInterleaveIn{TableName: y.TableName, Enforced: y.Enforced, OnDelete: y.OnDelete}})
+		}
+	}
+
+	if alteration := g.rowDeletionPolicyAlteration(from.RowDeletionPolicy, to.RowDeletionPolicy); alteration != nil {
+		ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: alteration})
+	}
+
+	if !g.optionsEqual(from.Options, to.Options) {
+		ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.QueueSetOptions{Options: optionsForSet(from.Options, to.Options)}})
+	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
+	ddl := DDL{}
+
+	ddl.Append(&ast.DropQueue{Name: queue.Name})
+	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
 	return ddl
 }
 
@@ -1618,7 +1766,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 	switch p := grant.Grant.Privilege.(type) {
 	case *ast.PrivilegeOnTable:
 		for _, name := range p.Names {
-			if _, exists := g.findTableByName(database.tables, identsToComparable(name)); exists {
+			if _, exists := g.findTableByName(database.tables, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1626,7 +1774,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 
 	case *ast.SelectPrivilegeOnView:
 		for _, name := range p.Names {
-			if _, exists := g.findViewByName(database.views, identsToComparable(name)); exists {
+			if _, exists := g.findViewByName(database.views, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1634,7 +1782,7 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 
 	case *ast.SelectPrivilegeOnChangeStream:
 		for _, name := range p.Names {
-			if _, exists := g.findChangeStreamByName(database, identsToComparable(name)); exists {
+			if _, exists := g.findChangeStreamByName(database, identsToComparable(name.Idents...)); exists {
 				return true
 			}
 		}
@@ -1678,19 +1826,19 @@ func equalPrivilege(a, b ast.Privilege) bool {
 	switch aTyped := a.(type) {
 	case *ast.PrivilegeOnTable:
 		bTyped := b.(*ast.PrivilegeOnTable)
-		if !equalIdentLists(aTyped.Names, bTyped.Names) {
+		if !equalPathLists(aTyped.Names, bTyped.Names) {
 			return false
 		}
 		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
 	case *ast.SelectPrivilegeOnChangeStream:
 		bTyped := b.(*ast.SelectPrivilegeOnChangeStream)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.SelectPrivilegeOnView:
 		bTyped := b.(*ast.SelectPrivilegeOnView)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.ExecutePrivilegeOnTableFunction:
 		bTyped := b.(*ast.ExecutePrivilegeOnTableFunction)
-		return equalIdentLists(aTyped.Names, bTyped.Names)
+		return equalPathLists(aTyped.Names, bTyped.Names)
 	case *ast.RolePrivilege:
 		bTyped := b.(*ast.RolePrivilege)
 		return equalIdentLists(aTyped.Names, bTyped.Names)
@@ -1734,6 +1882,18 @@ func matchTablePrivilege(a, b ast.TablePrivilege) bool {
 
 func equalIdentLists(a, b []*ast.Ident) bool {
 	return identsToComparable(a...) == identsToComparable(b...)
+}
+
+func equalPathLists(a, b []*ast.Path) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if identsToComparable(a[i].Idents...) != identsToComparable(b[i].Idents...) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
