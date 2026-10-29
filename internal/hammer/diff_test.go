@@ -2554,6 +2554,28 @@ CREATE TABLE t1 (
 				`ALTER TABLE t1 DROP COLUMN t1_2`,
 			},
 		},
+		{
+			name: "drop views in reverse definition order",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1
+SQL SECURITY INVOKER
+AS SELECT t1_1 FROM t1;
+
+CREATE VIEW v2
+SQL SECURITY INVOKER
+AS SELECT t1_1 FROM v1;
+`,
+			to: ``,
+			expected: []string{
+				`DROP VIEW v2`,
+				`DROP VIEW v1`,
+				`DROP TABLE t1`,
+			},
+		},
 		// === ROLE ===
 		{
 			name: "create role",

@@ -282,7 +282,8 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 
 	// drop views before any table or column they may reference is dropped
-	for _, fromView := range g.from.views {
+	for i := len(g.from.views) - 1; i >= 0; i-- {
+		fromView := g.from.views[i]
 		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropView(fromView))
 		}
