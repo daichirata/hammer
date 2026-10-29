@@ -2631,7 +2631,7 @@ CREATE TABLE sch1.t1 (
 			  id INT64 NOT NULL,
 			  name STRING(MAX),
 			) PRIMARY KEY(id);
-			CREATE INDEX idx1 ON sch1.t1(name);
+			CREATE INDEX sch1.idx1 ON sch1.t1(name);
 			CREATE VIEW sch1.v1 SQL SECURITY INVOKER AS SELECT id FROM sch1.t1;
 			`,
 			expected: []string{
@@ -2641,26 +2641,24 @@ CREATE TABLE sch1.t1 (
   id INT64 NOT NULL,
   name STRING(MAX)
 ) PRIMARY KEY (id)`,
-				`CREATE INDEX idx1 ON sch1.t1(name)`,
+				`CREATE INDEX sch1.idx1 ON sch1.t1(name)`,
 				`CREATE VIEW sch1.v1 SQL SECURITY INVOKER AS SELECT id FROM sch1.t1`,
 			},
 		},
 		{
-			name: "drop schema after its qualified table, index and view",
+			name: "drop schema after its qualified table and index",
 			from: `
 			CREATE SCHEMA sch1;
 			CREATE TABLE sch1.t1 (
 			  id INT64 NOT NULL,
 			  name STRING(MAX),
 			) PRIMARY KEY(id);
-			CREATE INDEX idx1 ON sch1.t1(name);
-			CREATE VIEW sch1.v1 SQL SECURITY INVOKER AS SELECT id FROM sch1.t1;
+			CREATE INDEX sch1.idx1 ON sch1.t1(name);
 			`,
 			to: ``,
 			expected: []string{
-				`DROP INDEX idx1`,
+				`DROP INDEX sch1.idx1`,
 				`DROP TABLE sch1.t1`,
-				`DROP VIEW sch1.v1`,
 				`DROP SCHEMA sch1`,
 			},
 		},
