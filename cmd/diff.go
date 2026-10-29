@@ -55,16 +55,11 @@ var (
 			if err != nil {
 				return err
 			}
-			ignoreCreateSchema, err := cmd.Flags().GetBool("ignore-create-schema")
-			if err != nil {
-				return err
-			}
 			ddlOption := &hammer.DDLOption{
 				IgnoreAlterDatabase: ignoreAlterDatabase,
 				IgnoreChangeStreams: ignoreChangeStreams,
 				IgnoreModels:        ignoreModels,
 				IgnoreProtoBundles:  ignoreProtoBundles,
-				IgnoreCreateSchema:  ignoreCreateSchema,
 			}
 
 			if sourceURI1 == hammer.StdinURI && sourceURI2 == hammer.StdinURI {
@@ -106,7 +101,6 @@ func init() {
 	diffCmd.Flags().Bool("ignore-change-streams", false, "ignore change streams statements")
 	diffCmd.Flags().Bool("ignore-models", false, "ignore model statements")
 	diffCmd.Flags().Bool("ignore-proto-bundles", false, "ignore proto bundle statements")
-	diffCmd.Flags().Bool("ignore-create-schema", false, "ignore create schema statements")
 
 	rootCmd.AddCommand(diffCmd)
 }

@@ -23,7 +23,6 @@ type DDLOption struct {
 	IgnoreChangeStreams bool
 	IgnoreModels        bool
 	IgnoreProtoBundles  bool
-	IgnoreCreateSchema  bool
 }
 
 func NewSource(ctx context.Context, uri string) (Source, error) {
