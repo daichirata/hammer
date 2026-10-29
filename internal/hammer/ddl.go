@@ -52,6 +52,9 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 		if _, ok := stmt.(*ast.CreateProtoBundle); ok && option.IgnoreProtoBundles {
 			continue
 		}
+		if _, ok := stmt.(*ast.CreateSchema); ok && option.IgnoreCreateSchema {
+			continue
+		}
 		list = append(list, stmt)
 	}
 	return DDL{List: list}, nil

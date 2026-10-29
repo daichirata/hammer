@@ -140,6 +140,23 @@ OPTIONS (
   Name STRING(10) NOT NULL
 ) PRIMARY KEY (UserID);`,
 		},
+		{
+			name: "Ignore create schema",
+			schema: `CREATE SCHEMA sch1;
+
+CREATE TABLE Users (
+  UserID STRING(10) NOT NULL, -- comment
+  Name   STRING(10) NOT NULL, -- comment
+) PRIMARY KEY(UserID);
+`,
+			option: &hammer.DDLOption{
+				IgnoreCreateSchema: true,
+			},
+			want: `CREATE TABLE Users (
+  UserID STRING(10) NOT NULL,
+  Name STRING(10) NOT NULL
+) PRIMARY KEY (UserID);`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
