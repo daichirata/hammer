@@ -281,6 +281,13 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 	}
 
+	// drop views before any table or column they may reference is dropped
+	for _, fromView := range g.from.views {
+		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
+			ddl.AppendDDL(g.generateDDLForDropView(fromView))
+		}
+	}
+
 	// for alter table
 	var constraintTargets []*Table
 	for _, toTable := range g.to.tables {
@@ -378,11 +385,6 @@ func (g *Generator) GenerateDDL() DDL {
 			continue
 		}
 		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
-	}
-	for _, fromView := range g.from.views {
-		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
-			ddl.AppendDDL(g.generateDDLForDropView(fromView))
-		}
 	}
 
 	// for roles

@@ -2515,6 +2515,45 @@ AS SELECT * FROM t1;
 				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
 			},
 		},
+		{
+			name: "drop view before table it references",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1
+SQL SECURITY INVOKER
+AS SELECT * FROM t1;
+`,
+			to: ``,
+			expected: []string{
+				`DROP VIEW v1`,
+				`DROP TABLE t1`,
+			},
+		},
+		{
+			name: "drop view before column it references",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+	t1_2 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+
+CREATE VIEW v1
+SQL SECURITY INVOKER
+AS SELECT t1_2 FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`DROP VIEW v1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
 		// === ROLE ===
 		{
 			name: "create role",
@@ -2646,7 +2685,7 @@ CREATE TABLE sch1.t1 (
 			},
 		},
 		{
-			name: "drop schema after its qualified table and index",
+			name: "drop schema after its qualified table, index and view",
 			from: `
 			CREATE SCHEMA sch1;
 			CREATE TABLE sch1.t1 (
@@ -2654,9 +2693,11 @@ CREATE TABLE sch1.t1 (
 			  name STRING(MAX),
 			) PRIMARY KEY(id);
 			CREATE INDEX sch1.idx1 ON sch1.t1(name);
+			CREATE VIEW sch1.v1 SQL SECURITY INVOKER AS SELECT id FROM sch1.t1;
 			`,
 			to: ``,
 			expected: []string{
+				`DROP VIEW sch1.v1`,
 				`DROP INDEX sch1.idx1`,
 				`DROP TABLE sch1.t1`,
 				`DROP SCHEMA sch1`,
