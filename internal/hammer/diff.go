@@ -31,6 +31,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 
 func NewDatabase(ddl DDL) (*Database, error) {
 	var (
+		schemas              []*Schema
 		tables               []*Table
 		changeStreams        []*ChangeStream
 		views                []*View
@@ -44,6 +45,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 	m := make(map[string]*Table)
 	for _, istmt := range ddl.List {
 		switch stmt := istmt.(type) {
+		case *ast.CreateSchema:
+			schemas = append(schemas, &Schema{CreateSchema: stmt})
 		case *ast.CreateTable:
 			t := &Table{CreateTable: stmt}
 			tables = append(tables, t)
@@ -117,10 +120,11 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{tables: tables, changeStreams: changeStreams, views: views, queues: queues, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{schemas: schemas, tables: tables, changeStreams: changeStreams, views: views, queues: queues, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
 }
 
 type Database struct {
+	schemas              []*Schema
 	tables               []*Table
 	changeStreams        []*ChangeStream
 	views                []*View
@@ -225,6 +229,10 @@ type Table struct {
 	changeStreams []*ChangeStream
 }
 
+type Schema struct {
+	*ast.CreateSchema
+}
+
 type Queue struct {
 	*ast.CreateQueue
 }
@@ -284,6 +292,21 @@ func (g *Generator) GenerateDDL() DDL {
 
 	// for alter database
 	ddl.AppendDDL(g.generateDDLForAlterDatabaseOptions())
+
+	// create schemas before any object that may be created inside them
+	for _, toSchema := range g.to.schemas {
+		if _, exists := g.findSchemaByName(g.from.schemas, identsToComparable(toSchema.Name)); !exists {
+			ddl.Append(toSchema)
+		}
+	}
+
+	// drop views before any table or column they may reference is dropped
+	for i := len(g.from.views) - 1; i >= 0; i-- {
+		fromView := g.from.views[i]
+		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
+			ddl.AppendDDL(g.generateDDLForDropView(fromView))
+		}
+	}
 
 	// for alter table
 	var constraintTargets []*Table
@@ -409,11 +432,6 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
 	}
-	for _, fromView := range g.from.views {
-		if _, exists := g.findViewByName(g.to.views, identsToComparable(fromView.Name.Idents...)); !exists {
-			ddl.AppendDDL(g.generateDDLForDropView(fromView))
-		}
-	}
 
 	// for roles
 	for _, toRole := range g.to.roles {
@@ -446,6 +464,13 @@ func (g *Generator) GenerateDDL() DDL {
 			}
 		} else {
 			ddl.Append(toGrant)
+		}
+	}
+
+	// drop schemas after every object inside them has been dropped
+	for _, fromSchema := range g.from.schemas {
+		if _, exists := g.findSchemaByName(g.to.schemas, identsToComparable(fromSchema.Name)); !exists {
+			ddl.Append(&ast.DropSchema{Name: fromSchema.Name})
 		}
 	}
 
@@ -1660,6 +1685,17 @@ func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 	ddl.Append(&ast.DropQueue{Name: queue.Name})
 	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
 	return ddl
+}
+
+func (g *Generator) findSchemaByName(schemas []*Schema, name string) (schema *Schema, exists bool) {
+	for _, s := range schemas {
+		if identsToComparable(s.Name) == name {
+			schema = s
+			exists = true
+			break
+		}
+	}
+	return
 }
 
 func (g *Generator) findViewByName(views []*View, name string) (view *View, exists bool) {
