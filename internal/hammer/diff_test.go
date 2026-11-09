@@ -4518,6 +4518,28 @@ GRANT SELECT ON QUEUE Q TO ROLE R;
 			},
 		},
 		{
+			name: "recreate parent table regrants the interleaved queue",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id), INTERLEAVE IN PARENT T;
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id STRING(36) NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (Id STRING(36) NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id), INTERLEAVE IN PARENT T;
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{
+				`DROP QUEUE Q`,
+				`DROP TABLE T`,
+				"CREATE TABLE T (\n  Id STRING(36) NOT NULL\n) PRIMARY KEY (Id)",
+				"CREATE QUEUE Q (\n  Id STRING(36) NOT NULL,\n  Payload BYTES(MAX) NOT NULL\n) PRIMARY KEY (Id),\n  INTERLEAVE IN PARENT T",
+				`GRANT SELECT ON QUEUE Q TO ROLE R`,
+			},
+		},
+		{
 			name: "drop role with grant on queue",
 			from: `
 CREATE ROLE R;
