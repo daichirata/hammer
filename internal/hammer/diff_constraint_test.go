@@ -720,6 +720,88 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "unnamed check constraint is not dropped before the column it references",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			// GetDdl omits the generated name, so Spanner rejects this drop and names the constraint to drop first.
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+		{
+			name: "unnamed check constraint is not dropped when recreating the column it references",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(MAX),
+  CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(MAX)`,
+			},
+		},
+		{
+			name: "set NOT NULL on a column referenced by a check constraint fills NULLs with the type default",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64 NOT NULL,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = 0 WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 INT64 NOT NULL`,
+			},
+		},
+		{
+			name: "set NOT NULL on a column referenced by a check constraint fills NULLs with its DEFAULT",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64 NOT NULL DEFAULT (1),
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = 1 WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 INT64 NOT NULL DEFAULT (1)`,
+			},
+		},
+		{
 			name: "identifier matching the dropped column name recreates the check constraint",
 			from: `
 CREATE TABLE t1 (
