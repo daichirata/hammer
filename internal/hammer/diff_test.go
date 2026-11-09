@@ -4350,6 +4350,24 @@ CREATE QUEUE Q (
 			},
 		},
 		{
+			name: "queue parent table name is not case-sensitive",
+			from: `
+CREATE TABLE T (Id INT64 NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (
+  Id INT64 NOT NULL,
+  Payload BYTES(MAX) NOT NULL,
+) PRIMARY KEY (Id), INTERLEAVE IN PARENT T;
+`,
+			to: `
+CREATE TABLE t (Id INT64 NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (
+  Id INT64 NOT NULL,
+  Payload BYTES(MAX) NOT NULL,
+) PRIMARY KEY (Id), INTERLEAVE IN PARENT t;
+`,
+			expected: []string{},
+		},
+		{
 			name: "interleave existing queue recreates the queue",
 			from: `
 CREATE TABLE T (Id INT64 NOT NULL) PRIMARY KEY (Id);

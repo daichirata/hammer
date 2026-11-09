@@ -1638,7 +1638,7 @@ func queueInterleaveAlterable(x, y *ast.Cluster) bool {
 	if x == nil || y == nil {
 		return x == y
 	}
-	return identsToComparable(x.TableName.Idents...) == identsToComparable(y.TableName.Idents...)
+	return strings.EqualFold(identsToComparable(x.TableName.Idents...), identsToComparable(y.TableName.Idents...))
 }
 
 func queueOnDelete(c *ast.Cluster) ast.OnDeleteAction {
