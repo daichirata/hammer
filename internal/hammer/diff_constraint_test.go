@@ -720,6 +720,82 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "error when dropping a column referenced by an unnamed check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			wantErr: "cannot drop column t1.t1_2: it is referenced by an unnamed check constraint CHECK (t1_2 > 0)",
+		},
+		{
+			name: "error when recreating a column referenced by an unnamed check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(MAX),
+  CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			wantErr: "cannot drop column t1.t1_2: it is referenced by an unnamed check constraint CHECK (t1_2 IS NOT NULL)",
+		},
+		{
+			name: "set NOT NULL on a column referenced by a check constraint fills NULLs with the type default",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64 NOT NULL,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = 0 WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 INT64 NOT NULL`,
+			},
+		},
+		{
+			name: "set NOT NULL on a column referenced by a check constraint fills NULLs with its DEFAULT",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64 NOT NULL DEFAULT (1),
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`UPDATE t1 SET t1_2 = 1 WHERE t1_2 IS NULL`,
+				`ALTER TABLE t1 ALTER COLUMN t1_2 INT64 NOT NULL DEFAULT (1)`,
+			},
+		},
+		{
 			name: "identifier matching the dropped column name recreates the check constraint",
 			from: `
 CREATE TABLE t1 (
