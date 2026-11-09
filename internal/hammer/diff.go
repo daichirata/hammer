@@ -1104,6 +1104,7 @@ func (g *Generator) isDroppedGrant(grant *Grant) bool {
 func (g *Generator) interleaveEqual(x, y *Table) bool {
 	return cmp.Equal(x.Cluster, y.Cluster,
 		cmpopts.IgnoreTypes(token.Pos(0)),
+		identComparer,
 		cmp.Comparer(func(a, b *ast.Cluster) bool {
 			if a == nil || b == nil {
 				return a == b
@@ -1116,7 +1117,7 @@ func (g *Generator) interleaveEqual(x, y *Table) bool {
 			if bVal.OnDelete == "" {
 				bVal.OnDelete = ast.OnDeleteNoAction
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
 		}),
 	)
 }
@@ -1155,7 +1156,7 @@ func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
 		}))
 }
 
@@ -1180,9 +1181,7 @@ func (g *Generator) columnDefEqual(x, y *ast.ColumnDef) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
 		cmpopts.IgnoreFields(ast.ColumnDef{}, "PrimaryKey"),
-		cmp.Comparer(func(x, y *ast.Ident) bool {
-			return strings.EqualFold(x.Name, y.Name)
-		}),
+		identComparer,
 		cmp.Comparer(func(x, y *ast.TimestampLiteral) bool {
 			return x.Value.SQL() == y.Value.SQL()
 		}),
@@ -1201,6 +1200,7 @@ func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
 func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
+		identComparer,
 		cmp.Comparer(func(a, b *ast.ForeignKey) bool {
 			aVal := *a
 			bVal := *b
@@ -1216,7 +1216,7 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 			if bVal.Enforcement == "" {
 				bVal.Enforcement = ast.Enforced
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
 		}),
 	)
 }
@@ -1224,6 +1224,7 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
+		identComparer,
 		cmpopts.IgnoreTypes(&ast.Storing{}),
 		cmpopts.IgnoreFields(ast.CreateIndex{}, "IfNotExists"),
 		cmp.Comparer(func(a, b *ast.IndexKey) bool {
@@ -1235,7 +1236,7 @@ func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
 		}),
 	)
 }
@@ -1243,6 +1244,7 @@ func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
+		identComparer,
 		cmp.Comparer(func(a, b *ast.OrderByItem) bool {
 			aVal := *a
 			bVal := *b
@@ -1252,7 +1254,7 @@ func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
 		}),
 	)
 }
@@ -1337,13 +1339,20 @@ func defaultByScalarTypeName(t ast.ScalarTypeName) ast.Expr {
 	}
 }
 
+var identComparer = cmp.Comparer(func(x, y *ast.Ident) bool {
+	if x == nil || y == nil {
+		return x == y
+	}
+	return strings.EqualFold(x.Name, y.Name)
+})
+
 func identsToComparable(is ...*ast.Ident) string {
 	var b strings.Builder
 	for i, n := range is {
 		if i != 0 {
 			b.WriteByte('.')
 		}
-		b.WriteString(n.Name)
+		b.WriteString(strings.ToLower(n.Name))
 	}
 	return b.String()
 }
@@ -1506,7 +1515,7 @@ func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *a
 		return false
 	}
 	for node := range ast.Preorder(check.Expr) {
-		if id, ok := node.(*ast.Ident); ok && strings.EqualFold(identsToComparable(id), identsToComparable(column)) {
+		if id, ok := node.(*ast.Ident); ok && identsToComparable(id) == identsToComparable(column) {
 			return true
 		}
 	}

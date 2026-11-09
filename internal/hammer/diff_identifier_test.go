@@ -21,6 +21,38 @@ CREATE TABLE T1 (
 			expected: []string{},
 		},
 		{
+			name: "primary key column names are not case-sensitive",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+	T1_1 INT64 NOT NULL,
+) PRIMARY KEY(T1_1);
+`,
+			expected: []string{},
+		},
+		{
+			name: "index names and columns are not case-sensitive",
+			from: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+	t1_2 INT64,
+) PRIMARY KEY(t1_1);
+CREATE INDEX idx_t1 ON t1(t1_2);
+`,
+			to: `
+CREATE TABLE t1 (
+	t1_1 INT64 NOT NULL,
+	t1_2 INT64,
+) PRIMARY KEY(t1_1);
+CREATE INDEX IDX_T1 ON T1(T1_2);
+`,
+			expected: []string{},
+		},
+		{
 			name: "named schema",
 			from: `
 			CREATE TABLE schema.t1 (
