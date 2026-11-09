@@ -1479,28 +1479,10 @@ func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *a
 	if !ok || identsToComparable(constraintHost.Name.Idents...) != identsToComparable(tableName.Idents...) {
 		return false
 	}
-	// Function names, member names, date parts and argument names are not column references.
-	notColumns := map[*ast.Ident]bool{}
+	// Any identifier with the column's name counts, so a function or field name may cause a needless re-add but never a missed one.
 	for node := range ast.Preorder(check.Expr) {
-		switch n := node.(type) {
-		case *ast.CallExpr:
-			for _, id := range n.Func.Idents {
-				notColumns[id] = true
-			}
-		case *ast.Path:
-			for _, id := range n.Idents[1:] {
-				notColumns[id] = true
-			}
-		case *ast.SelectorExpr:
-			notColumns[n.Ident] = true
-		case *ast.ExtractExpr:
-			notColumns[n.Part] = true
-		case *ast.NamedArg:
-			notColumns[n.Name] = true
-		case *ast.Ident:
-			if !notColumns[n] && identsToComparable(n) == identsToComparable(column) {
-				return true
-			}
+		if id, ok := node.(*ast.Ident); ok && strings.EqualFold(id.Name, column.Name) {
+			return true
 		}
 	}
 	return false

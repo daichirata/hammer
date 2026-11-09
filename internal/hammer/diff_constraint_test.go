@@ -720,7 +720,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
-			name: "function names in check constraint are not column references",
+			name: "identifier matching the dropped column name recreates the check constraint",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -737,49 +737,9 @@ CREATE TABLE t1 (
 ) PRIMARY KEY(t1_1);
 `,
 			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
 				`ALTER TABLE t1 DROP COLUMN length`,
-			},
-		},
-		{
-			name: "date part in check constraint is not a column reference",
-			from: `
-CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
-  day INT64,
-  ts TIMESTAMP,
-  CONSTRAINT CK_t1 CHECK (EXTRACT(day FROM ts) > 0),
-) PRIMARY KEY(t1_1);
-`,
-			to: `
-CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
-  ts TIMESTAMP,
-  CONSTRAINT CK_t1 CHECK (EXTRACT(day FROM ts) > 0),
-) PRIMARY KEY(t1_1);
-`,
-			expected: []string{
-				`ALTER TABLE t1 DROP COLUMN day`,
-			},
-		},
-		{
-			name: "named argument in check constraint is not a column reference",
-			from: `
-CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
-  wide_number_mode INT64,
-  payload STRING(MAX),
-  CONSTRAINT CK_t1 CHECK (PARSE_JSON(payload, wide_number_mode => 'round') IS NOT NULL),
-) PRIMARY KEY(t1_1);
-`,
-			to: `
-CREATE TABLE t1 (
-  t1_1 INT64 NOT NULL,
-  payload STRING(MAX),
-  CONSTRAINT CK_t1 CHECK (PARSE_JSON(payload, wide_number_mode => 'round') IS NOT NULL),
-) PRIMARY KEY(t1_1);
-`,
-			expected: []string{
-				`ALTER TABLE t1 DROP COLUMN wide_number_mode`,
+				`ALTER TABLE t1 ADD CONSTRAINT CK_t1 CHECK (length(name) > 0)`,
 			},
 		},
 		{
