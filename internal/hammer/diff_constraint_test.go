@@ -741,6 +741,71 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "date part in check constraint is not a column reference",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  day INT64,
+  ts TIMESTAMP,
+  CONSTRAINT CK_t1 CHECK (EXTRACT(day FROM ts) > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  ts TIMESTAMP,
+  CONSTRAINT CK_t1 CHECK (EXTRACT(day FROM ts) > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN day`,
+			},
+		},
+		{
+			name: "named argument in check constraint is not a column reference",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  wide_number_mode INT64,
+  payload STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (PARSE_JSON(payload, wide_number_mode => 'round') IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  payload STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (PARSE_JSON(payload, wide_number_mode => 'round') IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN wide_number_mode`,
+			},
+		},
+		{
+			name: "re-add check constraint when the table name differs only in case",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE T1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE T1 ADD COLUMN t1_2 STRING(MAX)`,
+				`ALTER TABLE T1 ADD CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL)`,
+			},
+		},
+		{
 			name: "JSON member names in check constraint are case-sensitive",
 			from: `
 CREATE TABLE t1 (

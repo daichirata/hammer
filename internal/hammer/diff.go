@@ -1052,7 +1052,7 @@ func (g *Generator) isDroppedIndex(name string) bool {
 func (g *Generator) isDroppedConstraint(table *ast.Path, constraint *ast.TableConstraint) bool {
 	name := identsToComparable(table.Idents...)
 	for _, c := range g.droppedConstraints {
-		if c.table == name && g.constraintEqual(c.constraint, constraint) {
+		if strings.EqualFold(c.table, name) && g.constraintEqual(c.constraint, constraint) {
 			return true
 		}
 	}
@@ -1479,7 +1479,7 @@ func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *a
 	if !ok || identsToComparable(constraintHost.Name.Idents...) != identsToComparable(tableName.Idents...) {
 		return false
 	}
-	// Function names and member names after the first path component are not column references.
+	// Function names, member names, date parts and argument names are not column references.
 	notColumns := map[*ast.Ident]bool{}
 	for node := range ast.Preorder(check.Expr) {
 		switch n := node.(type) {
@@ -1493,6 +1493,10 @@ func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *a
 			}
 		case *ast.SelectorExpr:
 			notColumns[n.Ident] = true
+		case *ast.ExtractExpr:
+			notColumns[n.Part] = true
+		case *ast.NamedArg:
+			notColumns[n.Name] = true
 		case *ast.Ident:
 			if !notColumns[n] && identsToComparable(n) == identsToComparable(column) {
 				return true
