@@ -1,10 +1,10 @@
 module github.com/daichirata/hammer
 
-go 1.24.0
+go 1.25.0
 
 require (
 	cloud.google.com/go/spanner v1.62.0
-	github.com/cloudspannerecosystem/memefish v0.6.3-0.20250912143235-4776405ac3b0
+	github.com/cloudspannerecosystem/memefish v0.9.0
 	github.com/google/go-cmp v0.7.0
 	github.com/spf13/cobra v0.0.5
 	google.golang.org/api v0.180.0
@@ -47,9 +47,9 @@ require (
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda // indirect
