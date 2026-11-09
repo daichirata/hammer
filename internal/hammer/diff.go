@@ -202,7 +202,7 @@ func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
 			continue
 		}
 		for _, name := range p.Names {
-			if identsToComparable(name.Idents...) == target {
+			if strings.EqualFold(identsToComparable(name.Idents...), target) {
 				result = append(result, grant)
 				break
 			}
@@ -1086,7 +1086,6 @@ func (g *Generator) isDroppedGrant(grant *Grant) bool {
 func (g *Generator) interleaveEqual(x, y *Table) bool {
 	return cmp.Equal(x.Cluster, y.Cluster,
 		cmpopts.IgnoreTypes(token.Pos(0)),
-		identComparer,
 		cmp.Comparer(func(a, b *ast.Cluster) bool {
 			if a == nil || b == nil {
 				return a == b
@@ -1099,7 +1098,7 @@ func (g *Generator) interleaveEqual(x, y *Table) bool {
 			if bVal.OnDelete == "" {
 				bVal.OnDelete = ast.OnDeleteNoAction
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}),
 	)
 }
@@ -1138,7 +1137,7 @@ func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}))
 }
 
@@ -1163,7 +1162,9 @@ func (g *Generator) columnDefEqual(x, y *ast.ColumnDef) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
 		cmpopts.IgnoreFields(ast.ColumnDef{}, "PrimaryKey"),
-		identComparer,
+		cmp.Comparer(func(x, y *ast.Ident) bool {
+			return strings.EqualFold(x.Name, y.Name)
+		}),
 		cmp.Comparer(func(x, y *ast.TimestampLiteral) bool {
 			return x.Value.SQL() == y.Value.SQL()
 		}),
@@ -1182,7 +1183,6 @@ func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
 func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
-		identComparer,
 		cmp.Comparer(func(a, b *ast.ForeignKey) bool {
 			aVal := *a
 			bVal := *b
@@ -1198,7 +1198,7 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 			if bVal.Enforcement == "" {
 				bVal.Enforcement = ast.Enforced
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}),
 	)
 }
@@ -1206,7 +1206,6 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
-		identComparer,
 		cmpopts.IgnoreTypes(&ast.Storing{}),
 		cmpopts.IgnoreFields(ast.CreateIndex{}, "IfNotExists"),
 		cmp.Comparer(func(a, b *ast.IndexKey) bool {
@@ -1218,7 +1217,7 @@ func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}),
 	)
 }
@@ -1226,7 +1225,6 @@ func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
 	return cmp.Equal(x, y,
 		cmpopts.IgnoreTypes(token.Pos(0)),
-		identComparer,
 		cmp.Comparer(func(a, b *ast.OrderByItem) bool {
 			aVal := *a
 			bVal := *b
@@ -1236,7 +1234,7 @@ func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
 			if bVal.Dir == "" {
 				bVal.Dir = ast.DirectionAsc
 			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)), identComparer)
+			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
 		}),
 	)
 }
@@ -1321,20 +1319,13 @@ func defaultByScalarTypeName(t ast.ScalarTypeName) ast.Expr {
 	}
 }
 
-var identComparer = cmp.Comparer(func(x, y *ast.Ident) bool {
-	if x == nil || y == nil {
-		return x == y
-	}
-	return strings.EqualFold(x.Name, y.Name)
-})
-
 func identsToComparable(is ...*ast.Ident) string {
 	var b strings.Builder
 	for i, n := range is {
 		if i != 0 {
 			b.WriteByte('.')
 		}
-		b.WriteString(strings.ToLower(n.Name))
+		b.WriteString(n.Name)
 	}
 	return b.String()
 }
@@ -1356,7 +1347,7 @@ func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 
 func (g *Generator) findTableByName(tables []*Table, name string) (*Table, bool) {
 	for _, t := range tables {
-		if identsToComparable(t.Name.Idents...) == name {
+		if strings.EqualFold(identsToComparable(t.Name.Idents...), name) {
 			return t, true
 		}
 	}
@@ -1365,7 +1356,7 @@ func (g *Generator) findTableByName(tables []*Table, name string) (*Table, bool)
 
 func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (*ast.ColumnDef, bool) {
 	for _, c := range cols {
-		if identsToComparable(c.Name) == name {
+		if strings.EqualFold(identsToComparable(c.Name), name) {
 			return c, true
 		}
 	}
@@ -1374,7 +1365,7 @@ func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (*ast.C
 
 func (g *Generator) findIdentByName(idents []*ast.Ident, name string) (*ast.Ident, bool) {
 	for _, i := range idents {
-		if identsToComparable(i) == name {
+		if strings.EqualFold(identsToComparable(i), name) {
 			return i, true
 		}
 	}
@@ -1608,7 +1599,7 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 
 func (g *Generator) findQueueByName(queues []*Queue, name string) (*Queue, bool) {
 	for _, q := range queues {
-		if identsToComparable(q.Name.Idents...) == name {
+		if strings.EqualFold(identsToComparable(q.Name.Idents...), name) {
 			return q, true
 		}
 	}
@@ -1616,7 +1607,7 @@ func (g *Generator) findQueueByName(queues []*Queue, name string) (*Queue, bool)
 }
 
 func (g *Generator) isDroppedQueue(name string) bool {
-	return slices.Contains(g.droppedQueues, name)
+	return slices.ContainsFunc(g.droppedQueues, func(q string) bool { return strings.EqualFold(q, name) })
 }
 
 func (g *Generator) queueColumnsEqual(x, y *Queue) bool {
@@ -1641,7 +1632,7 @@ func queueInterleaveAlterable(x, y *ast.Cluster) bool {
 	if x == nil || y == nil {
 		return x == y
 	}
-	return identsToComparable(x.TableName.Idents...) == identsToComparable(y.TableName.Idents...)
+	return strings.EqualFold(identsToComparable(x.TableName.Idents...), identsToComparable(y.TableName.Idents...))
 }
 
 func queueOnDelete(c *ast.Cluster) ast.OnDeleteAction {
