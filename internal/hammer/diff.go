@@ -1753,7 +1753,7 @@ func (g *Generator) generateDDLForReplaceView(from, to *View) DDL {
 			g.droppedGrant = append(g.droppedGrant, grant)
 		}
 	}
-	ddl.Append(&ast.CreateView{Name: to.Name, Query: to.Query, SecurityType: ast.SecurityTypeInvoker, OrReplace: true})
+	ddl.Append(&ast.CreateView{Name: to.Name, Query: to.Query, SecurityType: to.SecurityType, OrReplace: true})
 	return ddl
 }
 

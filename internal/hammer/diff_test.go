@@ -2600,6 +2600,46 @@ CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
 			},
 		},
 		{
+			name: "replace definer view",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1 WHERE t1.t1_1 > 0;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1`,
+			},
+		},
+		{
+			name: "change view security type",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT t1.t1_1 FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1`,
+			},
+		},
+		{
+			name: "definer view without changes",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{},
+		},
+		{
 			name: "drop view before table it references",
 			from: `
 CREATE TABLE t1 (
