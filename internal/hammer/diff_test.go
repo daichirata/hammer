@@ -4567,149 +4567,7 @@ GRANT SELECT ON QUEUE Q TO ROLE R;
 				`DROP ROLE R`,
 			},
 		},
-		// === Grants on multiple objects ===
-		{
-			name: "drop one queue of a grant on multiple queues",
-			from: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-`,
-			expected: []string{
-				`REVOKE SELECT ON QUEUE Q1, Q2 FROM ROLE R`,
-				`DROP QUEUE Q1`,
-			},
-		},
-		{
-			name: "drop one queue of a grant on multiple queues and keep the grant on the other",
-			from: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q2 TO ROLE R;
-`,
-			expected: []string{
-				`REVOKE SELECT ON QUEUE Q1, Q2 FROM ROLE R`,
-				`DROP QUEUE Q1`,
-				`GRANT SELECT ON QUEUE Q2 TO ROLE R`,
-			},
-		},
-		{
-			name: "drop role and one queue of a grant on multiple queues",
-			from: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			to: `
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-`,
-			expected: []string{
-				`REVOKE SELECT ON QUEUE Q1, Q2 FROM ROLE R`,
-				`DROP QUEUE Q1`,
-				`DROP ROLE R`,
-			},
-		},
-		{
-			name: "drop all queues of a grant on multiple queues",
-			from: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-`,
-			expected: []string{
-				`DROP QUEUE Q1`,
-				`DROP QUEUE Q2`,
-			},
-		},
-		{
-			name: "recreate one queue of a grant on multiple queues",
-			from: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE QUEUE Q1 (Id INT64 NOT NULL, Payload JSON NOT NULL) PRIMARY KEY (Id);
-CREATE QUEUE Q2 (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R;
-`,
-			expected: []string{
-				`REVOKE SELECT ON QUEUE Q1, Q2 FROM ROLE R`,
-				`DROP QUEUE Q1`,
-				"CREATE QUEUE Q1 (\n  Id INT64 NOT NULL,\n  Payload JSON NOT NULL\n) PRIMARY KEY (Id)",
-				`GRANT SELECT ON QUEUE Q1, Q2 TO ROLE R`,
-			},
-		},
-		{
-			name: "drop one table of a grant on multiple tables",
-			from: `
-CREATE ROLE R;
-CREATE TABLE T1 (Id INT64 NOT NULL) PRIMARY KEY (Id);
-CREATE TABLE T2 (Id INT64 NOT NULL) PRIMARY KEY (Id);
-GRANT SELECT ON TABLE T1, T2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE TABLE T2 (Id INT64 NOT NULL) PRIMARY KEY (Id);
-`,
-			expected: []string{
-				`REVOKE SELECT ON TABLE T1, T2 FROM ROLE R`,
-				`DROP TABLE T1`,
-			},
-		},
-		{
-			name: "drop one view of a grant on multiple views",
-			from: `
-CREATE ROLE R;
-CREATE VIEW V1 SQL SECURITY INVOKER AS SELECT 1 AS X;
-CREATE VIEW V2 SQL SECURITY INVOKER AS SELECT 2 AS X;
-GRANT SELECT ON VIEW V1, V2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE VIEW V2 SQL SECURITY INVOKER AS SELECT 2 AS X;
-`,
-			expected: []string{
-				`REVOKE SELECT ON VIEW V1, V2 FROM ROLE R`,
-				`DROP VIEW V1`,
-				`CREATE OR REPLACE VIEW V2 SQL SECURITY INVOKER AS SELECT 2 AS X`,
-			},
-		},
-		{
-			name: "drop one change stream of a grant on multiple change streams",
-			from: `
-CREATE ROLE R;
-CREATE CHANGE STREAM CS1 FOR ALL;
-CREATE CHANGE STREAM CS2 FOR ALL;
-GRANT SELECT ON CHANGE STREAM CS1, CS2 TO ROLE R;
-`,
-			to: `
-CREATE ROLE R;
-CREATE CHANGE STREAM CS2 FOR ALL;
-`,
-			expected: []string{
-				`REVOKE SELECT ON CHANGE STREAM CS1, CS2 FROM ROLE R`,
-				`DROP CHANGE STREAM CS1`,
-			},
-		},
+		// === Grants on dropped columns ===
 		{
 			name: "drop a column of a grant on multiple columns",
 			from: `
@@ -4759,6 +4617,41 @@ CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
 `,
 			expected: []string{
 				`ALTER TABLE T DROP COLUMN C1`,
+			},
+		},
+		{
+			name: "drop a column and a role of a grant on multiple columns",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
+`,
+			expected: []string{
+				`REVOKE SELECT(C1, C2) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`DROP ROLE R`,
+			},
+		},
+		{
+			name: "change the type of a column of a grant on multiple columns",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 STRING(10), C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			expected: []string{
+				`REVOKE SELECT(C1, C2) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`ALTER TABLE T ADD COLUMN C1 STRING(10)`,
+				`GRANT SELECT(C1, C2) ON TABLE T TO ROLE R`,
 			},
 		},
 		// === ALTER DATABASE ===

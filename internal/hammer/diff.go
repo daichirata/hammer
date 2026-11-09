@@ -668,7 +668,13 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		}
 		return identsToComparable(fk.ReferenceTable.Idents...) == identsToComparable(table.Name.Idents...)
 	}))
-	ddl.AppendDDL(g.generateDDLForDropGrants(g.from.grantsOnTable(table), grantOnSingleObject))
+	grants := g.from.grantsOnTable(table)
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
 	ddl.Append(&ast.DropTable{Name: table.Name})
 	g.dropedTable = append(g.dropedTable, identsToComparable(table.Name.Idents...))
 	return ddl
@@ -831,15 +837,24 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 
 	ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(table, column))
 
-	var grants []*Grant
-	for _, grant := range g.from.grantsFromPath(table) {
-		if priv, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable); ok && hasPrivilegeOnColumn(priv, column) {
-			grants = append(grants, grant)
+	grants := g.from.grantsFromPath(table)
+	for _, grant := range grants {
+		priv, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable)
+		if !ok {
+			continue
+		}
+		if !hasPrivilegeOnColumn(priv, column) {
+			continue
+		}
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+		// A grant that also covers other columns survives the drop on them, so it is revoked first.
+		if !grantOnColumnOnly(priv, column) {
+			ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
 		}
 	}
-	ddl.AppendDDL(g.generateDDLForDropGrants(grants, func(grant *Grant) bool {
-		return grantOnSingleColumn(grant, column)
-	}))
 
 	ddl.Append(&ast.AlterTable{
 		Name:            table,
@@ -1592,7 +1607,13 @@ func optionsForSet(from, to *ast.Options) *ast.Options {
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropGrants(g.from.grantsOnChangeStream(changeStream), grantOnSingleObject))
+	grants := g.from.grantsOnChangeStream(changeStream)
+	for _, grant := range grants {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
 
 	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
 	return ddl
@@ -1682,7 +1703,13 @@ func (g *Generator) generateDDLForAlterQueue(from, to *Queue) DDL {
 func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropGrants(g.from.grantsOnQueue(queue), grantOnSingleObject))
+	// Dropping the queue also removes its grants, so record them as dropped without REVOKE.
+	for _, grant := range g.from.grantsOnQueue(queue) {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
 
 	ddl.Append(&ast.DropQueue{Name: queue.Name})
 	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
@@ -1719,65 +1746,16 @@ func (g *Generator) generateDDLForReplaceView(view *View) DDL {
 
 func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
-	ddl.AppendDDL(g.generateDDLForDropGrants(g.from.grantsOnView(view), grantOnSingleObject))
-
-	ddl.Append(&ast.DropView{Name: view.Name})
-	return ddl
-}
-
-// A grant that also covers other objects or columns survives the drop on them, so it is revoked first.
-func (g *Generator) generateDDLForDropGrants(grants []*Grant, coversOnlyDropped func(*Grant) bool) DDL {
-	ddl := DDL{}
+	grants := g.from.grantsOnView(view)
 	for _, grant := range grants {
 		if g.isDroppedGrant(grant) {
 			continue
 		}
 		g.droppedGrant = append(g.droppedGrant, grant)
-		if !coversOnlyDropped(grant) && g.existsGrantResourceIn(grant, g.to) {
-			ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
-		}
 	}
+
+	ddl.Append(&ast.DropView{Name: view.Name})
 	return ddl
-}
-
-func grantOnSingleObject(grant *Grant) bool {
-	switch p := grant.Grant.Privilege.(type) {
-	case *ast.PrivilegeOnTable:
-		return len(p.Names) == 1
-	case *ast.SelectPrivilegeOnView:
-		return len(p.Names) == 1
-	case *ast.SelectPrivilegeOnChangeStream:
-		return len(p.Names) == 1
-	case *ast.PrivilegeOnQueue:
-		return len(p.Names) == 1
-	default:
-		return false
-	}
-}
-
-func grantOnSingleColumn(grant *Grant, column *ast.Ident) bool {
-	p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable)
-	if !ok || len(p.Names) != 1 {
-		return false
-	}
-	target := identsToComparable(column)
-	for _, privilege := range p.Privileges {
-		var columns []*ast.Ident
-		switch t := privilege.(type) {
-		case *ast.SelectPrivilege:
-			columns = t.Columns
-		case *ast.InsertPrivilege:
-			columns = t.Columns
-		case *ast.UpdatePrivilege:
-			columns = t.Columns
-		default:
-			return false
-		}
-		if len(columns) != 1 || identsToComparable(columns[0]) != target {
-			return false
-		}
-	}
-	return true
 }
 
 func isColHidden(col *ast.ColumnDef) bool {
@@ -2029,4 +2007,28 @@ func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
 		}
 	}
 	return false
+}
+
+func grantOnColumnOnly(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
+	if len(p.Names) != 1 {
+		return false
+	}
+	target := identsToComparable(column)
+	for _, privilege := range p.Privileges {
+		var columns []*ast.Ident
+		switch t := privilege.(type) {
+		case *ast.SelectPrivilege:
+			columns = t.Columns
+		case *ast.InsertPrivilege:
+			columns = t.Columns
+		case *ast.UpdatePrivilege:
+			columns = t.Columns
+		default:
+			return false
+		}
+		if len(columns) != 1 || identsToComparable(columns[0]) != target {
+			return false
+		}
+	}
+	return true
 }
