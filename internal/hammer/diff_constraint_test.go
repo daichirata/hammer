@@ -720,7 +720,7 @@ CREATE TABLE t1 (
 			},
 		},
 		{
-			name: "error when dropping a column referenced by an unnamed check constraint",
+			name: "unnamed check constraint is not dropped before the column it references",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -733,10 +733,13 @@ CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
 ) PRIMARY KEY(t1_1);
 `,
-			wantErr: "cannot drop column t1.t1_2: it is referenced by an unnamed check constraint CHECK (t1_2 > 0)",
+			// GetDdl omits the generated name, so Spanner rejects this drop and names the constraint to drop first.
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
 		},
 		{
-			name: "error when recreating a column referenced by an unnamed check constraint",
+			name: "unnamed check constraint is not dropped when recreating the column it references",
 			from: `
 CREATE TABLE t1 (
   t1_1 INT64 NOT NULL,
@@ -751,7 +754,10 @@ CREATE TABLE t1 (
   CHECK (t1_2 IS NOT NULL),
 ) PRIMARY KEY(t1_1);
 `,
-			wantErr: "cannot drop column t1.t1_2: it is referenced by an unnamed check constraint CHECK (t1_2 IS NOT NULL)",
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(MAX)`,
+			},
 		},
 		{
 			name: "set NOT NULL on a column referenced by a check constraint fills NULLs with the type default",

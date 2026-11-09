@@ -1,7 +1,6 @@
 package hammer
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -28,11 +27,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 		to:                        database2,
 		alteredChangeStreamStates: map[string]*ChangeStream{},
 	}
-	ddl := generator.GenerateDDL()
-	if err := errors.Join(generator.errs...); err != nil {
-		return DDL{}, err
-	}
-	return ddl, nil
+	return generator.GenerateDDL(), nil
 }
 
 func NewDatabase(ddl DDL) (*Database, error) {
@@ -301,7 +296,6 @@ type Generator struct {
 	droppedGrants                  []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
 	alteredChangeStreamStates      map[string]*ChangeStream
-	errs                           []error
 }
 
 func (g *Generator) GenerateDDL() DDL {
@@ -835,14 +829,6 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(t *Table, constraint *ast.TableConstraint) bool {
 		return foreignKeyReferencesColumn(t, table, column, constraint) || checkReferencesColumn(t, table, column, constraint)
 	}))
-	// Spanner rejects the drop, and GetDdl omits the generated name needed to drop the constraint first.
-	for _, t := range g.from.tables {
-		for _, constraint := range t.TableConstraints {
-			if constraint.Name == nil && checkReferencesColumn(t, table, column, constraint) {
-				g.errs = append(g.errs, fmt.Errorf("cannot drop column %s.%s: it is referenced by an unnamed check constraint %s; drop the constraint first by the name in INFORMATION_SCHEMA.CHECK_CONSTRAINTS", table.SQL(), column.SQL(), constraint.Constraint.SQL()))
-			}
-		}
-	}
 
 	grants := g.from.grantsFromPath(table)
 	for _, grant := range grants {
