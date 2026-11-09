@@ -3,6 +3,7 @@ package hammer
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/cloudspannerecosystem/memefish/ast"
@@ -89,8 +90,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 				changeStreams = append(changeStreams, &ChangeStream{CreateChangeStream: stmt})
 			}
 		case *ast.CreateView:
-			v := &View{CreateView: stmt}
-			views = append(views, v)
+			views = append(views, &View{CreateView: stmt})
 		case *ast.CreateQueue:
 			queues = append(queues, &Queue{CreateQueue: stmt})
 		case *ast.CreateRole:
@@ -136,35 +136,21 @@ type Database struct {
 }
 
 func (d *Database) grantsOnTable(table *Table) []*Grant {
-	var result []*Grant
-	target := identsToComparable(table.Name.Idents...)
-
-	for _, grant := range d.grants {
-		switch p := grant.Grant.Privilege.(type) {
-		case *ast.PrivilegeOnTable:
-			for _, name := range p.Names {
-				if identsToComparable(name.Idents...) == target {
-					result = append(result, grant)
-					break
-				}
-			}
-		}
-	}
-	return result
+	return d.grantsFromPath(table.Name)
 }
 
 func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
 	var result []*Grant
 	target := identsToComparable(path.Idents...)
-
 	for _, grant := range d.grants {
-		switch p := grant.Grant.Privilege.(type) {
-		case *ast.PrivilegeOnTable:
-			for _, name := range p.Names {
-				if identsToComparable(name.Idents...) == target {
-					result = append(result, grant)
-					break
-				}
+		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable)
+		if !ok {
+			continue
+		}
+		for _, name := range p.Names {
+			if identsToComparable(name.Idents...) == target {
+				result = append(result, grant)
+				break
 			}
 		}
 	}
@@ -175,12 +161,14 @@ func (d *Database) grantsOnView(view *View) []*Grant {
 	var result []*Grant
 	target := identsToComparable(view.Name.Idents...)
 	for _, grant := range d.grants {
-		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView); exists {
-			for _, name := range p.Names {
-				if identsToComparable(name.Idents...) == target {
-					result = append(result, grant)
-					break
-				}
+		p, ok := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView)
+		if !ok {
+			continue
+		}
+		for _, name := range p.Names {
+			if identsToComparable(name.Idents...) == target {
+				result = append(result, grant)
+				break
 			}
 		}
 	}
@@ -190,14 +178,15 @@ func (d *Database) grantsOnView(view *View) []*Grant {
 func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 	var result []*Grant
 	target := identsToComparable(cs.Name)
-
 	for _, grant := range d.grants {
-		if p, exists := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream); exists {
-			for _, name := range p.Names {
-				if identsToComparable(name.Idents...) == target {
-					result = append(result, grant)
-					break
-				}
+		p, ok := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream)
+		if !ok {
+			continue
+		}
+		for _, name := range p.Names {
+			if identsToComparable(name.Idents...) == target {
+				result = append(result, grant)
+				break
 			}
 		}
 	}
@@ -207,14 +196,15 @@ func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
 	var result []*Grant
 	target := identsToComparable(queue.Name.Idents...)
-
 	for _, grant := range d.grants {
-		if p, exists := grant.Grant.Privilege.(*ast.PrivilegeOnQueue); exists {
-			for _, name := range p.Names {
-				if strings.EqualFold(identsToComparable(name.Idents...), target) {
-					result = append(result, grant)
-					break
-				}
+		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnQueue)
+		if !ok {
+			continue
+		}
+		for _, name := range p.Names {
+			if strings.EqualFold(identsToComparable(name.Idents...), target) {
+				result = append(result, grant)
+				break
 			}
 		}
 	}
@@ -224,7 +214,6 @@ func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
 func (d *Database) grantsOnRole(role *Role) []*Grant {
 	var result []*Grant
 	target := identsToComparable(role.Name)
-
 	for _, grant := range d.grants {
 		for _, r := range grant.Roles {
 			if identsToComparable(r) == target {
@@ -290,16 +279,21 @@ func (cs *ChangeStream) Type() ChangeStreamType {
 	}
 }
 
+type droppedConstraint struct {
+	table      string
+	constraint *ast.TableConstraint
+}
+
 type Generator struct {
 	from *Database
 	to   *Database
 
-	dropedTable                    []string
-	dropedIndex                    []string
-	dropedChangeStream             []string
-	droppedQueue                   []string
-	droppedConstraints             []*ast.TableConstraint
-	droppedGrant                   []*Grant
+	droppedTables                  []string
+	droppedIndexes                 []string
+	droppedChangeStreams           []string
+	droppedQueues                  []string
+	droppedConstraints             []droppedConstraint
+	droppedGrants                  []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
 	alteredChangeStreamStates      map[string]*ChangeStream
 }
@@ -335,7 +329,7 @@ func (g *Generator) GenerateDDL() DDL {
 			continue
 		}
 
-		if g.isDropedTable(identsToComparable(toTable.Name.Idents...)) {
+		if g.isDroppedTable(identsToComparable(toTable.Name.Idents...)) {
 			ddl.AppendDDL(g.generateDDLForCreateTableAndIndex(toTable))
 			continue
 		}
@@ -391,7 +385,7 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	for _, cs := range g.willCreateOrAlterChangeStreams {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(cs.Name))
-		if !exists || g.isDropedChangeStream(identsToComparable(cs.Name)) {
+		if !exists || g.isDroppedChangeStream(identsToComparable(cs.Name)) {
 			ddl.Append(cs)
 			continue
 		}
@@ -418,12 +412,12 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	// drop change streams
 	for _, fromChangeStream := range g.from.changeStreams {
-		if g.isDropedChangeStream(identsToComparable(fromChangeStream.Name)) {
+		if g.isDroppedChangeStream(identsToComparable(fromChangeStream.Name)) {
 			continue
 		}
 		if _, exists := g.findChangeStreamByName(g.to, identsToComparable(fromChangeStream.Name)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(fromChangeStream))
-			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(fromChangeStream.Name))
+			g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(fromChangeStream.Name))
 		}
 	}
 	for _, fromTable := range g.from.tables {
@@ -431,12 +425,12 @@ func (g *Generator) GenerateDDL() DDL {
 			continue
 		}
 		for _, cs := range fromTable.changeStreams {
-			if g.isDropedChangeStream(identsToComparable(cs.Name)) {
+			if g.isDroppedChangeStream(identsToComparable(cs.Name)) {
 				continue
 			}
 			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); !exists {
 				ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
-				g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
+				g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(cs.Name))
 			}
 		}
 	}
@@ -594,7 +588,7 @@ func (g *Generator) isWillCreateOrAlterChangeStream(name string) bool {
 func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL {
 	ddl := DDL{}
 
-	if g.isDropedTable(identsToComparable(table.Name.Idents...)) {
+	if g.isDroppedTable(identsToComparable(table.Name.Idents...)) {
 		return ddl
 	}
 	for _, t := range table.children {
@@ -612,7 +606,7 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		ddl.Append(&ast.DropSearchIndex{Name: i.Name})
 	}
 	for _, cs := range table.changeStreams {
-		if !g.isDropedChangeStream(identsToComparable(cs.Name)) {
+		if !g.isDroppedChangeStream(identsToComparable(cs.Name)) {
 			if csFor, ok := cs.For.(*ast.ChangeStreamForTables); ok && len(csFor.Tables) > 1 {
 				var remainingTables []*ast.ChangeStreamForTable
 				for _, t := range csFor.Tables {
@@ -661,7 +655,7 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 				}
 			}
 			ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
-			g.dropedChangeStream = append(g.dropedChangeStream, identsToComparable(cs.Name))
+			g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(cs.Name))
 		}
 	}
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(_ *Table, constraint *ast.TableConstraint) bool {
@@ -671,15 +665,9 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		}
 		return identsToComparable(fk.ReferenceTable.Idents...) == identsToComparable(table.Name.Idents...)
 	}))
-	grants := g.from.grantsOnTable(table)
-	for _, grant := range grants {
-		if g.isDroppedGrant(grant) {
-			continue
-		}
-		g.droppedGrant = append(g.droppedGrant, grant)
-	}
+	g.markGrantsDropped(g.from.grantsOnTable(table))
 	ddl.Append(&ast.DropTable{Name: table.Name})
-	g.dropedTable = append(g.dropedTable, identsToComparable(table.Name.Idents...))
+	g.droppedTables = append(g.droppedTables, identsToComparable(table.Name.Idents...))
 	return ddl
 }
 
@@ -699,7 +687,7 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 
 		fromConstraint, exists := g.findNamedConstraint(from.TableConstraints, identsToComparable(toConstraint.Name))
 
-		if !exists || g.isDroppedConstraint(toConstraint) {
+		if !exists || g.isDroppedConstraint(to.Name, toConstraint) {
 			ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint}})
 			continue
 		}
@@ -838,7 +826,9 @@ func (g *Generator) generateDDLForDropForeignKeysReferencingColumn(table *ast.Pa
 func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(table, column))
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(t *Table, constraint *ast.TableConstraint) bool {
+		return foreignKeyReferencesColumn(t, table, column, constraint) || checkReferencesColumn(t, table, column, constraint)
+	}))
 
 	grants := g.from.grantsFromPath(table)
 	for _, grant := range grants {
@@ -849,10 +839,9 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 		if !hasPrivilegeOnColumn(priv, column) {
 			continue
 		}
-		if g.isDroppedGrant(grant) {
+		if !g.markGrantDropped(grant) {
 			continue
 		}
-		g.droppedGrant = append(g.droppedGrant, grant)
 		// A grant that also covers other columns survives the drop on them, so it is revoked first.
 		if !grantOnColumnOnly(priv, column) {
 			ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
@@ -872,7 +861,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	indexes := []*ast.CreateIndex{}
 	for _, i := range g.findIndexByColumn(from.indexes, identsToComparable(fromCol.Name)) {
-		if !g.isDropedIndex(identsToComparable(i.Name.Idents...)) {
+		if !g.isDroppedIndex(identsToComparable(i.Name.Idents...)) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -882,7 +871,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	searchIndexes := []*ast.CreateSearchIndex{}
 	for _, i := range g.findSearchIndexByColumn(from.searchIndexes, identsToComparable(fromCol.Name)) {
-		if !g.isDropedIndex(identsToComparable(i.Name.Idents...)) {
+		if !g.isDroppedIndex(identsToComparable(i.Name.Idents...)) {
 			searchIndexes = append(searchIndexes, i)
 		}
 	}
@@ -915,13 +904,13 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 
 		if exists && !g.indexEqualIgnoringStoring(fromIndex, toIndex) {
 			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
+			g.droppedIndexes = append(g.droppedIndexes, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	for _, fromIndex := range from.indexes {
 		if _, exists := g.findIndexByName(to.indexes, identsToComparable(fromIndex.Name.Idents...)); !exists {
 			ddl.Append(&ast.DropIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
+			g.droppedIndexes = append(g.droppedIndexes, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 
@@ -930,13 +919,13 @@ func (g *Generator) generateDDLForDropIndex(from, to *Table) DDL {
 
 		if exists && !g.searchIndexEqual(fromIndex, toIndex) {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
+			g.droppedIndexes = append(g.droppedIndexes, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 	for _, fromIndex := range from.searchIndexes {
 		if _, exists := g.findSearchIndexByName(to.searchIndexes, identsToComparable(fromIndex.Name.Idents...)); !exists {
 			ddl.Append(&ast.DropSearchIndex{Name: fromIndex.Name})
-			g.dropedIndex = append(g.dropedIndex, identsToComparable(fromIndex.Name.Idents...))
+			g.droppedIndexes = append(g.droppedIndexes, identsToComparable(fromIndex.Name.Idents...))
 		}
 	}
 
@@ -1037,12 +1026,10 @@ func (g *Generator) generateDDLForDropNamedConstraint(table *ast.Path, constrain
 		return ddl
 	}
 
-	for _, c := range g.droppedConstraints {
-		if g.constraintEqual(c, constraint) {
-			return ddl
-		}
+	if g.isDroppedConstraint(table, constraint) {
+		return ddl
 	}
-	g.droppedConstraints = append(g.droppedConstraints, constraint)
+	g.droppedConstraints = append(g.droppedConstraints, droppedConstraint{table: identsToComparable(table.Idents...), constraint: constraint})
 
 	ddl.Append(&ast.AlterTable{
 		Name: table,
@@ -1054,44 +1041,45 @@ func (g *Generator) generateDDLForDropNamedConstraint(table *ast.Path, constrain
 	return ddl
 }
 
-func (g *Generator) isDropedTable(name string) bool {
-	for _, t := range g.dropedTable {
-		if t == name {
-			return true
-		}
-	}
-	return false
+func (g *Generator) isDroppedTable(name string) bool {
+	return slices.Contains(g.droppedTables, name)
 }
 
-func (g *Generator) isDropedIndex(name string) bool {
-	for _, t := range g.dropedIndex {
-		if t == name {
-			return true
-		}
-	}
-	return false
+func (g *Generator) isDroppedIndex(name string) bool {
+	return slices.Contains(g.droppedIndexes, name)
 }
 
-func (g *Generator) isDroppedConstraint(constraint *ast.TableConstraint) bool {
+func (g *Generator) isDroppedConstraint(table *ast.Path, constraint *ast.TableConstraint) bool {
+	name := identsToComparable(table.Idents...)
 	for _, c := range g.droppedConstraints {
-		if g.constraintEqual(c, constraint) {
+		if strings.EqualFold(c.table, name) && g.constraintEqual(c.constraint, constraint) {
 			return true
 		}
 	}
 	return false
 }
 
-func (g *Generator) isDropedChangeStream(name string) bool {
-	for _, t := range g.dropedChangeStream {
-		if t == name {
-			return true
-		}
+func (g *Generator) isDroppedChangeStream(name string) bool {
+	return slices.Contains(g.droppedChangeStreams, name)
+}
+
+// markGrantDropped records grant as dropped and reports whether it was not recorded yet.
+func (g *Generator) markGrantDropped(grant *Grant) bool {
+	if g.isDroppedGrant(grant) {
+		return false
 	}
-	return false
+	g.droppedGrants = append(g.droppedGrants, grant)
+	return true
+}
+
+func (g *Generator) markGrantsDropped(grants []*Grant) {
+	for _, grant := range grants {
+		g.markGrantDropped(grant)
+	}
 }
 
 func (g *Generator) isDroppedGrant(grant *Grant) bool {
-	for _, dg := range g.droppedGrant {
+	for _, dg := range g.droppedGrants {
 		if equalGrant(dg, grant) {
 			return true
 		}
@@ -1361,67 +1349,55 @@ func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
 	return col
 }
 
-func (g *Generator) findTableByName(tables []*Table, name string) (table *Table, exists bool) {
+func (g *Generator) findTableByName(tables []*Table, name string) (*Table, bool) {
 	for _, t := range tables {
 		if strings.EqualFold(identsToComparable(t.Name.Idents...), name) {
-			table = t
-			exists = true
-			break
+			return t, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (col *ast.ColumnDef, exists bool) {
+func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (*ast.ColumnDef, bool) {
 	for _, c := range cols {
 		if strings.EqualFold(identsToComparable(c.Name), name) {
-			col = c
-			exists = true
-			break
+			return c, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findIdentByName(idents []*ast.Ident, name string) (ident *ast.Ident, exists bool) {
+func (g *Generator) findIdentByName(idents []*ast.Ident, name string) (*ast.Ident, bool) {
 	for _, i := range idents {
 		if strings.EqualFold(identsToComparable(i), name) {
-			ident = i
-			exists = true
-			break
+			return i, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findNamedConstraint(constraints []*ast.TableConstraint, name string) (con *ast.TableConstraint, exists bool) {
+func (g *Generator) findNamedConstraint(constraints []*ast.TableConstraint, name string) (*ast.TableConstraint, bool) {
 	if name == "" {
-		exists = false
-		return
+		return nil, false
 	}
-
 	for _, c := range constraints {
 		if identsToComparable(c.Name) == name {
-			con = c
-			exists = true
-			break
+			return c, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findUnnamedConstraint(constraints []*ast.TableConstraint, item *ast.TableConstraint) (con *ast.TableConstraint, exists bool) {
+func (g *Generator) findUnnamedConstraint(constraints []*ast.TableConstraint, item *ast.TableConstraint) (*ast.TableConstraint, bool) {
 	for _, c := range constraints {
 		if g.constraintEqual(c, item) {
-			con = c
-			exists = true
-			break
+			return c, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (index *ast.CreateIndex, exists bool) {
+func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (*ast.CreateIndex, bool) {
 	for _, i := range indexes {
 		if identsToComparable(i.Name.Idents...) == name {
 			return i, true
@@ -1456,7 +1432,7 @@ func indexReferencesColumn(i *ast.CreateIndex, column string) bool {
 	return false
 }
 
-func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (index *ast.CreateSearchIndex, exists bool) {
+func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (*ast.CreateSearchIndex, bool) {
 	for _, i := range indexes {
 		if identsToComparable(i.Name.Idents...) == name {
 			return i, true
@@ -1493,6 +1469,20 @@ func foreignKeyReferencesColumn(constraintHost *Table, tableName *ast.Path, colu
 			if identsToComparable(refColumn) == columnKey {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *ast.Ident, constraint *ast.TableConstraint) bool {
+	check, ok := constraint.Constraint.(*ast.Check)
+	if !ok || identsToComparable(constraintHost.Name.Idents...) != identsToComparable(tableName.Idents...) {
+		return false
+	}
+	// Any identifier with the column's name counts, so a function or field name may cause a needless re-add but never a missed one.
+	for node := range ast.Preorder(check.Expr) {
+		if id, ok := node.(*ast.Ident); ok && strings.EqualFold(id.Name, column.Name) {
+			return true
 		}
 	}
 	return false
@@ -1540,24 +1530,20 @@ func (g *Generator) generateDDLForDropNamedConstraintsMatchingPredicate(predicat
 	return ddl
 }
 
-func (g *Generator) findChangeStreamByName(database *Database, name string) (changeStream *ChangeStream, exists bool) {
+func (g *Generator) findChangeStreamByName(database *Database, name string) (*ChangeStream, bool) {
 	for _, cs := range database.changeStreams {
 		if identsToComparable(cs.Name) == name {
-			changeStream = cs
-			exists = true
-			break
+			return cs, true
 		}
 	}
 	for _, table := range database.tables {
 		for _, cs := range table.changeStreams {
 			if identsToComparable(cs.Name) == name {
-				changeStream = cs
-				exists = true
-				break
+				return cs, true
 			}
 		}
 	}
-	return
+	return nil, false
 }
 
 func (g *Generator) generateDDLForAlterChangeStream(from, to *ChangeStream) DDL {
@@ -1610,19 +1596,13 @@ func optionsForSet(from, to *ast.Options) *ast.Options {
 func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) DDL {
 	ddl := DDL{}
 
-	grants := g.from.grantsOnChangeStream(changeStream)
-	for _, grant := range grants {
-		if g.isDroppedGrant(grant) {
-			continue
-		}
-		g.droppedGrant = append(g.droppedGrant, grant)
-	}
+	g.markGrantsDropped(g.from.grantsOnChangeStream(changeStream))
 
 	ddl.Append(&ast.DropChangeStream{Name: changeStream.Name})
 	return ddl
 }
 
-func (g *Generator) findQueueByName(queues []*Queue, name string) (queue *Queue, exists bool) {
+func (g *Generator) findQueueByName(queues []*Queue, name string) (*Queue, bool) {
 	for _, q := range queues {
 		if strings.EqualFold(identsToComparable(q.Name.Idents...), name) {
 			return q, true
@@ -1632,12 +1612,7 @@ func (g *Generator) findQueueByName(queues []*Queue, name string) (queue *Queue,
 }
 
 func (g *Generator) isDroppedQueue(name string) bool {
-	for _, q := range g.droppedQueue {
-		if strings.EqualFold(q, name) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(g.droppedQueues, func(q string) bool { return strings.EqualFold(q, name) })
 }
 
 func (g *Generator) queueColumnsEqual(x, y *Queue) bool {
@@ -1707,38 +1682,29 @@ func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 	ddl := DDL{}
 
 	// Dropping the queue also removes its grants, so record them as dropped without REVOKE.
-	for _, grant := range g.from.grantsOnQueue(queue) {
-		if g.isDroppedGrant(grant) {
-			continue
-		}
-		g.droppedGrant = append(g.droppedGrant, grant)
-	}
+	g.markGrantsDropped(g.from.grantsOnQueue(queue))
 
 	ddl.Append(&ast.DropQueue{Name: queue.Name})
-	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
+	g.droppedQueues = append(g.droppedQueues, identsToComparable(queue.Name.Idents...))
 	return ddl
 }
 
-func (g *Generator) findSchemaByName(schemas []*Schema, name string) (schema *Schema, exists bool) {
+func (g *Generator) findSchemaByName(schemas []*Schema, name string) (*Schema, bool) {
 	for _, s := range schemas {
 		if identsToComparable(s.Name) == name {
-			schema = s
-			exists = true
-			break
+			return s, true
 		}
 	}
-	return
+	return nil, false
 }
 
-func (g *Generator) findViewByName(views []*View, name string) (view *View, exists bool) {
+func (g *Generator) findViewByName(views []*View, name string) (*View, bool) {
 	for _, v := range views {
 		if identsToComparable(v.Name.Idents...) == name {
-			view = v
-			exists = true
-			break
+			return v, true
 		}
 	}
-	return
+	return nil, false
 }
 
 func (g *Generator) viewEqual(x, y *View) bool {
@@ -1748,24 +1714,14 @@ func (g *Generator) viewEqual(x, y *View) bool {
 func (g *Generator) generateDDLForReplaceView(from, to *View) DDL {
 	ddl := DDL{}
 	// CREATE OR REPLACE VIEW removes the grants on the view.
-	for _, grant := range g.from.grantsOnView(from) {
-		if !g.isDroppedGrant(grant) {
-			g.droppedGrant = append(g.droppedGrant, grant)
-		}
-	}
+	g.markGrantsDropped(g.from.grantsOnView(from))
 	ddl.Append(&ast.CreateView{Name: to.Name, Query: to.Query, SecurityType: to.SecurityType, OrReplace: true})
 	return ddl
 }
 
 func (g *Generator) generateDDLForDropView(view *View) DDL {
 	ddl := DDL{}
-	grants := g.from.grantsOnView(view)
-	for _, grant := range grants {
-		if g.isDroppedGrant(grant) {
-			continue
-		}
-		g.droppedGrant = append(g.droppedGrant, grant)
-	}
+	g.markGrantsDropped(g.from.grantsOnView(view))
 
 	ddl.Append(&ast.DropView{Name: view.Name})
 	return ddl
@@ -1775,15 +1731,13 @@ func isColHidden(col *ast.ColumnDef) bool {
 	return !col.Hidden.Invalid() && col.Hidden != token.Pos(0)
 }
 
-func (g *Generator) findRoleByName(roles []*Role, name string) (role *Role, exists bool) {
+func (g *Generator) findRoleByName(roles []*Role, name string) (*Role, bool) {
 	for _, r := range roles {
 		if identsToComparable(r.Name) == name {
-			role = r
-			exists = true
-			break
+			return r, true
 		}
 	}
-	return
+	return nil, false
 }
 
 func (g *Generator) generateDDLForDropRole(role *Role) DDL {
@@ -1791,13 +1745,12 @@ func (g *Generator) generateDDLForDropRole(role *Role) DDL {
 	grants := g.from.grantsOnRole(role)
 
 	for _, grant := range grants {
-		if g.isDroppedGrant(grant) {
+		if !g.markGrantDropped(grant) {
 			continue
 		}
-		g.droppedGrant = append(g.droppedGrant, grant)
 
 		// If the resource doesn't exist in "to(Database)", skip REVOKE:
-		// dropping the object means the grant no longer applies. Record droppedGrant only.
+		// dropping the object means the grant no longer applies. Record droppedGrants only.
 		if !g.existsGrantResourceIn(grant, g.to) {
 			continue
 		}
