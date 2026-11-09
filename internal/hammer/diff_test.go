@@ -4439,6 +4439,134 @@ CREATE QUEUE Q (
 				`DROP TABLE T`,
 			},
 		},
+		{
+			name: "grant on queue",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+`,
+			to: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT, INSERT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{
+				`GRANT SELECT, INSERT ON QUEUE Q TO ROLE R`,
+			},
+		},
+		{
+			name: "grant on queue without changes",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{},
+		},
+		{
+			name: "change grant privileges on queue",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT INSERT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{
+				`REVOKE SELECT ON QUEUE Q FROM ROLE R`,
+				`GRANT INSERT ON QUEUE Q TO ROLE R`,
+			},
+		},
+		{
+			name: "drop queue with grant",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+`,
+			expected: []string{
+				`DROP QUEUE Q`,
+			},
+		},
+		{
+			name: "recreate queue with grant",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload JSON NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{
+				`DROP QUEUE Q`,
+				"CREATE QUEUE Q (\n  Id INT64 NOT NULL,\n  Payload JSON NOT NULL\n) PRIMARY KEY (Id)",
+				`GRANT SELECT ON QUEUE Q TO ROLE R`,
+			},
+		},
+		{
+			name: "recreate parent table regrants the interleaved queue",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id), INTERLEAVE IN PARENT T;
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id STRING(36) NOT NULL) PRIMARY KEY (Id);
+CREATE QUEUE Q (Id STRING(36) NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id), INTERLEAVE IN PARENT T;
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			expected: []string{
+				`DROP QUEUE Q`,
+				`DROP TABLE T`,
+				"CREATE TABLE T (\n  Id STRING(36) NOT NULL\n) PRIMARY KEY (Id)",
+				"CREATE QUEUE Q (\n  Id STRING(36) NOT NULL,\n  Payload BYTES(MAX) NOT NULL\n) PRIMARY KEY (Id),\n  INTERLEAVE IN PARENT T",
+				`GRANT SELECT ON QUEUE Q TO ROLE R`,
+			},
+		},
+		{
+			name: "drop role with grant on queue",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: `
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+`,
+			expected: []string{
+				`REVOKE SELECT ON QUEUE Q FROM ROLE R`,
+				`DROP ROLE R`,
+			},
+		},
+		{
+			name: "drop role and queue with grant on queue",
+			from: `
+CREATE ROLE R;
+CREATE QUEUE Q (Id INT64 NOT NULL, Payload BYTES(MAX) NOT NULL) PRIMARY KEY (Id);
+GRANT SELECT ON QUEUE Q TO ROLE R;
+`,
+			to: ``,
+			expected: []string{
+				`DROP QUEUE Q`,
+				`DROP ROLE R`,
+			},
+		},
 		// === ALTER DATABASE ===
 		{
 			name: "Alter database, only position's diff",
