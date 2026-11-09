@@ -12,6 +12,57 @@ import (
 	"github.com/daichirata/hammer/internal/hammer"
 )
 
+func TestDiffError(t *testing.T) {
+	runDiffTests(t, []diffTestCase{
+		{
+			name:    "index on unknown table",
+			to:      `CREATE INDEX idx_t1 ON t1(t1_1);`,
+			wantErr: "cannot find ddl of table to apply index idx_t1",
+		},
+		{
+			name:    "search index on unknown table",
+			to:      `CREATE SEARCH INDEX sidx_t1 ON t1(t1_1);`,
+			wantErr: "cannot find ddl of table to apply search index sidx_t1",
+		},
+		{
+			name:    "alter unknown table",
+			to:      `ALTER TABLE t1 ADD CONSTRAINT FK_t1 FOREIGN KEY (t1_1) REFERENCES t2 (t2_1);`,
+			wantErr: "cannot find ddl of table",
+		},
+		{
+			name: "unsupported table alteration",
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+ALTER TABLE t1 ADD COLUMN t1_2 INT64;
+`,
+			wantErr: "unsupported table alteration",
+		},
+		{
+			name: "interleave in unknown parent table",
+			to: `
+CREATE TABLE t2 (
+  t1_1 INT64 NOT NULL,
+  t2_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1, t2_1),
+  INTERLEAVE IN PARENT t1;
+`,
+			wantErr: "parent ddl t1 not found",
+		},
+		{
+			name:    "unsupported statement",
+			to:      `CREATE SEQUENCE seq OPTIONS (sequence_kind = 'bit_reversed_positive');`,
+			wantErr: "unexpected ddl statement",
+		},
+		{
+			name:    "unsupported statement in from",
+			from:    `CREATE SEQUENCE seq OPTIONS (sequence_kind = 'bit_reversed_positive');`,
+			wantErr: "unexpected ddl statement",
+		},
+	})
+}
+
 type diffTestCase struct {
 	name                string
 	from                string

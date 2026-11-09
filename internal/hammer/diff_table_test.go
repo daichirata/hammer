@@ -378,6 +378,43 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "change column (array element size)",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 ARRAY<STRING(10)>,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 ARRAY<STRING(20)>,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ALTER COLUMN t1_2 ARRAY<STRING(20)>`,
+			},
+		},
+		{
+			name: "change column (array element type)",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 ARRAY<STRING(10)>,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 ARRAY<INT64>,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 ARRAY<INT64>`,
+			},
+		},
+		{
 			name: "set NOT NULL to timestamp column",
 			from: `
 CREATE TABLE t1 (
