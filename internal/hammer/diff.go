@@ -442,12 +442,15 @@ func (g *Generator) GenerateDDL() DDL {
 	}
 	// for views
 	for _, toView := range g.to.views {
-		_, exists := g.findViewByName(g.from.views, identsToComparable(toView.Name.Idents...))
+		fromView, exists := g.findViewByName(g.from.views, identsToComparable(toView.Name.Idents...))
 		if !exists {
 			ddl.Append(toView)
 			continue
 		}
-		ddl.AppendDDL(g.generateDDLForReplaceView(toView))
+		if g.viewEqual(fromView, toView) {
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForReplaceView(fromView, toView))
 	}
 
 	// for roles
@@ -1738,9 +1741,19 @@ func (g *Generator) findViewByName(views []*View, name string) (view *View, exis
 	return
 }
 
-func (g *Generator) generateDDLForReplaceView(view *View) DDL {
+func (g *Generator) viewEqual(x, y *View) bool {
+	return x.SecurityType == y.SecurityType && x.Query.SQL() == y.Query.SQL()
+}
+
+func (g *Generator) generateDDLForReplaceView(from, to *View) DDL {
 	ddl := DDL{}
-	ddl.Append(&ast.CreateView{Name: view.Name, Query: view.Query, SecurityType: ast.SecurityTypeInvoker, OrReplace: true})
+	// CREATE OR REPLACE VIEW removes the grants on the view.
+	for _, grant := range g.from.grantsOnView(from) {
+		if !g.isDroppedGrant(grant) {
+			g.droppedGrant = append(g.droppedGrant, grant)
+		}
+	}
+	ddl.Append(&ast.CreateView{Name: to.Name, Query: to.Query, SecurityType: to.SecurityType, OrReplace: true})
 	return ddl
 }
 

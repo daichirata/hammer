@@ -2516,6 +2516,130 @@ AS SELECT * FROM t1;
 			},
 		},
 		{
+			name: "view without changes",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1
+SQL SECURITY INVOKER
+AS select *
+from t1;
+`,
+			expected: []string{},
+		},
+		{
+			name: "view with grant without changes",
+			from: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			to: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			expected: []string{},
+		},
+		{
+			name: "replace view regrants the view",
+			from: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1 WHERE t1_1 > 0;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			to: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
+				`GRANT SELECT ON VIEW v1 TO ROLE r1`,
+			},
+		},
+		{
+			name: "replace view and remove its grant",
+			from: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1 WHERE t1_1 > 0;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			to: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
+			},
+		},
+		{
+			name: "replace view and drop role with grant on the view",
+			from: `
+CREATE ROLE r1;
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1 WHERE t1_1 > 0;
+GRANT SELECT ON VIEW v1 TO ROLE r1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY INVOKER AS SELECT * FROM t1`,
+				`DROP ROLE r1`,
+			},
+		},
+		{
+			name: "replace definer view",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1 WHERE t1.t1_1 > 0;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1`,
+			},
+		},
+		{
+			name: "change view security type",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY INVOKER AS SELECT t1.t1_1 FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{
+				`CREATE OR REPLACE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1`,
+			},
+		},
+		{
+			name: "definer view without changes",
+			from: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			to: `
+CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY (t1_1);
+CREATE VIEW v1 SQL SECURITY DEFINER AS SELECT t1.t1_1 FROM t1;
+`,
+			expected: []string{},
+		},
+		{
 			name: "drop view before table it references",
 			from: `
 CREATE TABLE t1 (
@@ -3154,7 +3278,6 @@ CREATE TABLE T1 (
 				CREATE VIEW V1 SQL SECURITY INVOKER AS SELECT 1;
 			`,
 			expected: []string{
-				`CREATE OR REPLACE VIEW V1 SQL SECURITY INVOKER AS SELECT 1`,
 				`REVOKE SELECT ON VIEW V1 FROM ROLE role1`,
 				`DROP ROLE role1`,
 			},
