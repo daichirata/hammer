@@ -204,6 +204,23 @@ func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 	return result
 }
 
+func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
+	var result []*Grant
+	target := identsToComparable(queue.Name.Idents...)
+
+	for _, grant := range d.grants {
+		if p, exists := grant.Grant.Privilege.(*ast.PrivilegeOnQueue); exists {
+			for _, name := range p.Names {
+				if strings.EqualFold(identsToComparable(name.Idents...), target) {
+					result = append(result, grant)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
 func (d *Database) grantsOnRole(role *Role) []*Grant {
 	var result []*Grant
 	target := identsToComparable(role.Name)
@@ -1682,6 +1699,14 @@ func (g *Generator) generateDDLForAlterQueue(from, to *Queue) DDL {
 func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 	ddl := DDL{}
 
+	// Dropping the queue also removes its grants, so record them as dropped without REVOKE.
+	for _, grant := range g.from.grantsOnQueue(queue) {
+		if g.isDroppedGrant(grant) {
+			continue
+		}
+		g.droppedGrant = append(g.droppedGrant, grant)
+	}
+
 	ddl.Append(&ast.DropQueue{Name: queue.Name})
 	g.droppedQueue = append(g.droppedQueue, identsToComparable(queue.Name.Idents...))
 	return ddl
@@ -1824,6 +1849,14 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 		}
 		return false
 
+	case *ast.PrivilegeOnQueue:
+		for _, name := range p.Names {
+			if _, exists := g.findQueueByName(database.queues, identsToComparable(name.Idents...)); exists {
+				return true
+			}
+		}
+		return false
+
 	case *ast.ExecutePrivilegeOnTableFunction:
 		// Not tracked yet; return true so REVOKE precedes DROP ROLE (safe order).
 		// TODO: Check existence when table functions are modeled.
@@ -1862,6 +1895,12 @@ func equalPrivilege(a, b ast.Privilege) bool {
 	switch aTyped := a.(type) {
 	case *ast.PrivilegeOnTable:
 		bTyped := b.(*ast.PrivilegeOnTable)
+		if !equalPathLists(aTyped.Names, bTyped.Names) {
+			return false
+		}
+		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
+	case *ast.PrivilegeOnQueue:
+		bTyped := b.(*ast.PrivilegeOnQueue)
 		if !equalPathLists(aTyped.Names, bTyped.Names) {
 			return false
 		}
