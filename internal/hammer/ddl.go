@@ -2,6 +2,7 @@ package hammer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cloudspannerecosystem/memefish"
@@ -51,6 +52,13 @@ func ParseDDL(uri, schema string, option *DDLOption) (DDL, error) {
 		}
 		if _, ok := stmt.(*ast.CreateProtoBundle); ok && option.IgnoreProtoBundles {
 			continue
+		}
+		if seq, ok := stmt.(*ast.CreateSequence); ok {
+			normalized, err := normalizeCreateSequence(seq)
+			if err != nil {
+				return DDL{}, fmt.Errorf("%s: %w", uri, err)
+			}
+			stmt = normalized
 		}
 		list = append(list, stmt)
 	}
@@ -126,4 +134,92 @@ func (u Update) defaultValue() string {
 
 func (u Update) SQL() string {
 	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", u.Table, u.Def.Name.SQL(), u.defaultValue(), u.Def.Name.SQL())
+}
+
+const (
+	sequenceOptionKind             = "sequence_kind"
+	sequenceOptionSkipRangeMin     = "skip_range_min"
+	sequenceOptionSkipRangeMax     = "skip_range_max"
+	sequenceOptionStartWithCounter = "start_with_counter"
+)
+
+var sequenceOptionOrder = []string{
+	sequenceOptionKind,
+	sequenceOptionSkipRangeMin,
+	sequenceOptionSkipRangeMax,
+	sequenceOptionStartWithCounter,
+}
+
+// memefish does not render the clause form (BIT_REVERSED_POSITIVE, SKIP RANGE,
+// START COUNTER WITH) back into valid SQL, so it is rewritten into OPTIONS.
+func normalizeCreateSequence(stmt *ast.CreateSequence) (*ast.CreateSequence, error) {
+	if len(stmt.Params) == 0 {
+		return stmt, nil
+	}
+
+	options := make(map[string]ast.Expr)
+	for _, param := range stmt.Params {
+		switch p := param.(type) {
+		case *ast.BitReversedPositive:
+			options[sequenceOptionKind] = &ast.StringLiteral{Value: "bit_reversed_positive"}
+		case *ast.SkipRange:
+			options[sequenceOptionSkipRangeMin] = p.Min
+			options[sequenceOptionSkipRangeMax] = p.Max
+		case *ast.StartCounterWith:
+			options[sequenceOptionStartWithCounter] = p.Counter
+		default:
+			return nil, fmt.Errorf("unsupported sequence parameter %s in %s", param.SQL(), stmt.Name.SQL())
+		}
+	}
+	for name, value := range sequenceOptions(stmt.Options) {
+		options[name] = value
+	}
+
+	var records []*ast.OptionsDef
+	for _, name := range sequenceOptionNames(options) {
+		records = append(records, &ast.OptionsDef{Name: &ast.Ident{Name: name}, Value: options[name]})
+	}
+	return &ast.CreateSequence{
+		Create:      stmt.Create,
+		Name:        stmt.Name,
+		IfNotExists: stmt.IfNotExists,
+		Options:     &ast.Options{Records: records},
+	}, nil
+}
+
+func sequenceOptions(options *ast.Options) map[string]ast.Expr {
+	m := make(map[string]ast.Expr)
+	if options == nil {
+		return m
+	}
+	for _, r := range options.Records {
+		name := strings.ToLower(r.Name.Name)
+		if _, ok := r.Value.(*ast.NullLiteral); ok {
+			delete(m, name)
+			continue
+		}
+		value := r.Value
+		if lit, ok := value.(*ast.StringLiteral); ok && name == sequenceOptionKind {
+			value = &ast.StringLiteral{Value: strings.ToLower(lit.Value)}
+		}
+		m[name] = value
+	}
+	return m
+}
+
+func sequenceOptionNames(options map[string]ast.Expr) []string {
+	var names []string
+	for _, name := range sequenceOptionOrder {
+		if _, ok := options[name]; ok {
+			names = append(names, name)
+		}
+	}
+	var others []string
+	for name := range options {
+		if !slices.Contains(sequenceOptionOrder, name) {
+			others = append(others, name)
+		}
+	}
+	slices.Sort(others)
+	return append(names, others...)
 }
