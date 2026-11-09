@@ -560,3 +560,185 @@ ALTER TABLE child ADD CONSTRAINT FK_child FOREIGN KEY (ref) REFERENCES parent (p
 		},
 	})
 }
+
+func TestDiffCheckConstraint(t *testing.T) {
+	runDiffTests(t, []diffTestCase{
+		{
+			name: "create table with check constraint",
+			from: ``,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0)
+) PRIMARY KEY (t1_1)`,
+			},
+		},
+		{
+			name: "add named check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ADD CONSTRAINT CK_t1 CHECK (t1_2 > 0)`,
+			},
+		},
+		{
+			name: "add unnamed check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 ADD CHECK (t1_2 > 0)`,
+			},
+		},
+		{
+			name: "update named check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 1),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE t1 ADD CONSTRAINT CK_t1 CHECK (t1_2 > 1)`,
+			},
+		},
+		{
+			name: "drop named check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+			},
+		},
+		{
+			name: "drop unnamed check constraint",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{},
+		},
+		{
+			name: "drop check constraint before the column it references",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+		{
+			name: "recreate check constraint when recreating the column it references",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+				`ALTER TABLE t1 ADD COLUMN t1_2 STRING(MAX)`,
+				`ALTER TABLE t1 ADD CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL)`,
+			},
+		},
+		{
+			name: "do not drop check constraint referencing only other columns",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  t1_3 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_3 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_3 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_3 > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN t1_2`,
+			},
+		},
+	})
+}

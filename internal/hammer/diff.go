@@ -838,7 +838,9 @@ func (g *Generator) generateDDLForDropForeignKeysReferencingColumn(table *ast.Pa
 func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident) DDL {
 	ddl := DDL{}
 
-	ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(table, column))
+	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(t *Table, constraint *ast.TableConstraint) bool {
+		return foreignKeyReferencesColumn(t, table, column, constraint) || checkReferencesColumn(t, table, column, constraint)
+	}))
 
 	grants := g.from.grantsFromPath(table)
 	for _, grant := range grants {
@@ -1493,6 +1495,19 @@ func foreignKeyReferencesColumn(constraintHost *Table, tableName *ast.Path, colu
 			if identsToComparable(refColumn) == columnKey {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *ast.Ident, constraint *ast.TableConstraint) bool {
+	check, ok := constraint.Constraint.(*ast.Check)
+	if !ok || identsToComparable(constraintHost.Name.Idents...) != identsToComparable(tableName.Idents...) {
+		return false
+	}
+	for node := range ast.Preorder(check.Expr) {
+		if id, ok := node.(*ast.Ident); ok && strings.EqualFold(identsToComparable(id), identsToComparable(column)) {
+			return true
 		}
 	}
 	return false
