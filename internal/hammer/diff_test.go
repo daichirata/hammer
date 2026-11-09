@@ -4567,6 +4567,93 @@ GRANT SELECT ON QUEUE Q TO ROLE R;
 				`DROP ROLE R`,
 			},
 		},
+		// === Grants on dropped columns ===
+		{
+			name: "drop a column of a grant on multiple columns",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C2) ON TABLE T TO ROLE R;
+`,
+			expected: []string{
+				`REVOKE SELECT(C1, C2) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`GRANT SELECT(C2) ON TABLE T TO ROLE R`,
+			},
+		},
+		{
+			name: "drop a column of a grant with a table-level privilege",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT, UPDATE(C1) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT ON TABLE T TO ROLE R;
+`,
+			expected: []string{
+				`REVOKE SELECT, UPDATE(C1) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`GRANT SELECT ON TABLE T TO ROLE R`,
+			},
+		},
+		{
+			name: "drop the only column of a grant",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
+`,
+			expected: []string{
+				`ALTER TABLE T DROP COLUMN C1`,
+			},
+		},
+		{
+			name: "drop a column and a role of a grant on multiple columns",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE TABLE T (Id INT64 NOT NULL, C2 INT64) PRIMARY KEY (Id);
+`,
+			expected: []string{
+				`REVOKE SELECT(C1, C2) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`DROP ROLE R`,
+			},
+		},
+		{
+			name: "change the type of a column of a grant on multiple columns",
+			from: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 INT64, C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			to: `
+CREATE ROLE R;
+CREATE TABLE T (Id INT64 NOT NULL, C1 STRING(10), C2 INT64) PRIMARY KEY (Id);
+GRANT SELECT(C1, C2) ON TABLE T TO ROLE R;
+`,
+			expected: []string{
+				`REVOKE SELECT(C1, C2) ON TABLE T FROM ROLE R`,
+				`ALTER TABLE T DROP COLUMN C1`,
+				`ALTER TABLE T ADD COLUMN C1 STRING(10)`,
+				`GRANT SELECT(C1, C2) ON TABLE T TO ROLE R`,
+			},
+		},
 		// === ALTER DATABASE ===
 		{
 			name: "Alter database, only position's diff",

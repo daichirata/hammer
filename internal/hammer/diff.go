@@ -850,6 +850,10 @@ func (g *Generator) generateDDLForDropColumn(table *ast.Path, column *ast.Ident)
 			continue
 		}
 		g.droppedGrant = append(g.droppedGrant, grant)
+		// A grant that also covers other columns survives the drop on them, so it is revoked first.
+		if !grantOnColumnOnly(priv, column) {
+			ddl.AppendDDL(g.generateDDLForRevokeAll(grant))
+		}
 	}
 
 	ddl.Append(&ast.AlterTable{
@@ -2003,4 +2007,28 @@ func hasPrivilegeOnColumn(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
 		}
 	}
 	return false
+}
+
+func grantOnColumnOnly(p *ast.PrivilegeOnTable, column *ast.Ident) bool {
+	if len(p.Names) != 1 {
+		return false
+	}
+	target := identsToComparable(column)
+	for _, privilege := range p.Privileges {
+		var columns []*ast.Ident
+		switch t := privilege.(type) {
+		case *ast.SelectPrivilege:
+			columns = t.Columns
+		case *ast.InsertPrivilege:
+			columns = t.Columns
+		case *ast.UpdatePrivilege:
+			columns = t.Columns
+		default:
+			return false
+		}
+		if len(columns) != 1 || identsToComparable(columns[0]) != target {
+			return false
+		}
+	}
+	return true
 }
