@@ -279,6 +279,11 @@ func (cs *ChangeStream) Type() ChangeStreamType {
 	}
 }
 
+type droppedConstraint struct {
+	table      string
+	constraint *ast.TableConstraint
+}
+
 type Generator struct {
 	from *Database
 	to   *Database
@@ -287,7 +292,7 @@ type Generator struct {
 	droppedIndexes                 []string
 	droppedChangeStreams           []string
 	droppedQueues                  []string
-	droppedConstraints             []*ast.TableConstraint
+	droppedConstraints             []droppedConstraint
 	droppedGrants                  []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
 	alteredChangeStreamStates      map[string]*ChangeStream
@@ -682,7 +687,7 @@ func (g *Generator) generateDDLForConstraints(from, to *Table) DDL {
 
 		fromConstraint, exists := g.findNamedConstraint(from.TableConstraints, identsToComparable(toConstraint.Name))
 
-		if !exists || g.isDroppedConstraint(toConstraint) {
+		if !exists || g.isDroppedConstraint(to.Name, toConstraint) {
 			ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddTableConstraint{TableConstraint: toConstraint}})
 			continue
 		}
@@ -1021,12 +1026,10 @@ func (g *Generator) generateDDLForDropNamedConstraint(table *ast.Path, constrain
 		return ddl
 	}
 
-	for _, c := range g.droppedConstraints {
-		if g.constraintEqual(c, constraint) {
-			return ddl
-		}
+	if g.isDroppedConstraint(table, constraint) {
+		return ddl
 	}
-	g.droppedConstraints = append(g.droppedConstraints, constraint)
+	g.droppedConstraints = append(g.droppedConstraints, droppedConstraint{table: identsToComparable(table.Idents...), constraint: constraint})
 
 	ddl.Append(&ast.AlterTable{
 		Name: table,
@@ -1046,9 +1049,10 @@ func (g *Generator) isDroppedIndex(name string) bool {
 	return slices.Contains(g.droppedIndexes, name)
 }
 
-func (g *Generator) isDroppedConstraint(constraint *ast.TableConstraint) bool {
+func (g *Generator) isDroppedConstraint(table *ast.Path, constraint *ast.TableConstraint) bool {
+	name := identsToComparable(table.Idents...)
 	for _, c := range g.droppedConstraints {
-		if g.constraintEqual(c, constraint) {
+		if c.table == name && g.constraintEqual(c.constraint, constraint) {
 			return true
 		}
 	}
@@ -1475,9 +1479,24 @@ func checkReferencesColumn(constraintHost *Table, tableName *ast.Path, column *a
 	if !ok || identsToComparable(constraintHost.Name.Idents...) != identsToComparable(tableName.Idents...) {
 		return false
 	}
+	// Function names and member names after the first path component are not column references.
+	notColumns := map[*ast.Ident]bool{}
 	for node := range ast.Preorder(check.Expr) {
-		if id, ok := node.(*ast.Ident); ok && identsToComparable(id) == identsToComparable(column) {
-			return true
+		switch n := node.(type) {
+		case *ast.CallExpr:
+			for _, id := range n.Func.Idents {
+				notColumns[id] = true
+			}
+		case *ast.Path:
+			for _, id := range n.Idents[1:] {
+				notColumns[id] = true
+			}
+		case *ast.SelectorExpr:
+			notColumns[n.Ident] = true
+		case *ast.Ident:
+			if !notColumns[n] && identsToComparable(n) == identsToComparable(column) {
+				return true
+			}
 		}
 	}
 	return false

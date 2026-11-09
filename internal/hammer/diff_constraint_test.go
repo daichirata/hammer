@@ -720,6 +720,85 @@ CREATE TABLE t1 (
 			},
 		},
 		{
+			name: "function names in check constraint are not column references",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  length INT64,
+  name STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (length(name) > 0),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  name STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (length(name) > 0),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP COLUMN length`,
+			},
+		},
+		{
+			name: "JSON member names in check constraint are case-sensitive",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  payload JSON,
+  CONSTRAINT CK_t1 CHECK (payload.Status IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  payload JSON,
+  CONSTRAINT CK_t1 CHECK (payload.status IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE t1 ADD CONSTRAINT CK_t1 CHECK (payload.status IS NOT NULL)`,
+			},
+		},
+		{
+			name: "recreating a column does not re-add a same-named check constraint on another table",
+			from: `
+CREATE SCHEMA s1;
+CREATE SCHEMA s2;
+CREATE TABLE s1.t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+CREATE TABLE s2.t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE SCHEMA s1;
+CREATE SCHEMA s2;
+CREATE TABLE s1.t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 STRING(MAX),
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+CREATE TABLE s2.t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 INT64,
+  CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL),
+) PRIMARY KEY(t1_1);
+`,
+			expected: []string{
+				`ALTER TABLE s1.t1 DROP CONSTRAINT CK_t1`,
+				`ALTER TABLE s1.t1 DROP COLUMN t1_2`,
+				`ALTER TABLE s1.t1 ADD COLUMN t1_2 STRING(MAX)`,
+				`ALTER TABLE s1.t1 ADD CONSTRAINT CK_t1 CHECK (t1_2 IS NOT NULL)`,
+			},
+		},
+		{
 			name: "do not drop check constraint referencing only other columns",
 			from: `
 CREATE TABLE t1 (
