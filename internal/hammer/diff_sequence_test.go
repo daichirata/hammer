@@ -99,16 +99,14 @@ CREATE SEQUENCE seq1 OPTIONS (skip_range_min = 1, skip_range_max = 1000);
 			expected: []string{},
 		},
 		{
-			name: "change sequence_kind",
+			name: "sequence_kind is case-insensitive",
 			from: `
 CREATE SEQUENCE seq1 OPTIONS (sequence_kind = 'bit_reversed_positive');
 `,
 			to: `
-CREATE SEQUENCE seq1 OPTIONS (sequence_kind = 'new_kind');
+CREATE SEQUENCE seq1 OPTIONS (sequence_kind = 'BIT_REVERSED_POSITIVE');
 `,
-			expected: []string{
-				`ALTER SEQUENCE seq1 SET OPTIONS (sequence_kind = "new_kind")`,
-			},
+			expected: []string{},
 		},
 		{
 			name: "create sequence before table that uses it",
@@ -279,6 +277,37 @@ CREATE ROLE role1;
 `,
 			expected: []string{
 				`DROP SEQUENCE seq1`,
+			},
+		},
+		{
+			name: "drop sequence and role together without revoking",
+			from: `
+CREATE SEQUENCE seq1 OPTIONS (sequence_kind = 'bit_reversed_positive');
+CREATE ROLE role1;
+GRANT SELECT ON SEQUENCE seq1 TO ROLE role1;
+`,
+			to: ``,
+			expected: []string{
+				`DROP SEQUENCE seq1`,
+				`DROP ROLE role1`,
+			},
+		},
+		{
+			name: "drop one of the sequences in a grant",
+			from: `
+CREATE SEQUENCE seq1 OPTIONS (sequence_kind = 'bit_reversed_positive');
+CREATE SEQUENCE seq2 OPTIONS (sequence_kind = 'bit_reversed_positive');
+CREATE ROLE role1;
+GRANT SELECT ON SEQUENCE seq1, seq2 TO ROLE role1;
+`,
+			to: `
+CREATE SEQUENCE seq2 OPTIONS (sequence_kind = 'bit_reversed_positive');
+CREATE ROLE role1;
+GRANT SELECT ON SEQUENCE seq2 TO ROLE role1;
+`,
+			expected: []string{
+				`DROP SEQUENCE seq1`,
+				`GRANT SELECT ON SEQUENCE seq2 TO ROLE role1`,
 			},
 		},
 		{
