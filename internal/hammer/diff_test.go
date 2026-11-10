@@ -52,12 +52,12 @@ CREATE TABLE t2 (
 		},
 		{
 			name:    "unsupported statement",
-			to:      `CREATE SEQUENCE seq OPTIONS (sequence_kind = 'bit_reversed_positive');`,
+			to:      `CREATE VECTOR INDEX vi ON t1(e) OPTIONS (distance_type = 'COSINE');`,
 			wantErr: "unexpected ddl statement",
 		},
 		{
 			name:    "unsupported statement in from",
-			from:    `CREATE SEQUENCE seq OPTIONS (sequence_kind = 'bit_reversed_positive');`,
+			from:    `CREATE VECTOR INDEX vi ON t1(e) OPTIONS (distance_type = 'COSINE');`,
 			wantErr: "unexpected ddl statement",
 		},
 	})

@@ -37,6 +37,7 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		changeStreams        []*ChangeStream
 		views                []*View
 		queues               []*Queue
+		sequences            []*Sequence
 		roles                []*Role
 		grants               []*Grant
 		alterDatabaseOptions *ast.AlterDatabase
@@ -93,6 +94,8 @@ func NewDatabase(ddl DDL) (*Database, error) {
 			views = append(views, &View{CreateView: stmt})
 		case *ast.CreateQueue:
 			queues = append(queues, &Queue{CreateQueue: stmt})
+		case *ast.CreateSequence:
+			sequences = append(sequences, &Sequence{CreateSequence: stmt})
 		case *ast.CreateRole:
 			roles = append(roles, &Role{CreateRole: stmt})
 		case *ast.Grant:
@@ -120,7 +123,18 @@ func NewDatabase(ddl DDL) (*Database, error) {
 		}
 	}
 
-	return &Database{schemas: schemas, tables: tables, changeStreams: changeStreams, views: views, queues: queues, roles: roles, grants: grants, alterDatabaseOptions: alterDatabaseOptions, options: options}, nil
+	return &Database{
+		schemas:              schemas,
+		tables:               tables,
+		changeStreams:        changeStreams,
+		views:                views,
+		queues:               queues,
+		sequences:            sequences,
+		roles:                roles,
+		grants:               grants,
+		alterDatabaseOptions: alterDatabaseOptions,
+		options:              options,
+	}, nil
 }
 
 type Database struct {
@@ -129,6 +143,7 @@ type Database struct {
 	changeStreams        []*ChangeStream
 	views                []*View
 	queues               []*Queue
+	sequences            []*Sequence
 	roles                []*Role
 	grants               []*Grant
 	alterDatabaseOptions *ast.AlterDatabase
@@ -211,6 +226,24 @@ func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
 	return result
 }
 
+func (d *Database) grantsOnSequence(sequence *Sequence) []*Grant {
+	var result []*Grant
+	target := identsToComparable(sequence.Name.Idents...)
+	for _, grant := range d.grants {
+		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnSequence)
+		if !ok {
+			continue
+		}
+		for _, name := range p.Names {
+			if strings.EqualFold(identsToComparable(name.Idents...), target) {
+				result = append(result, grant)
+				break
+			}
+		}
+	}
+	return result
+}
+
 func (d *Database) grantsOnRole(role *Role) []*Grant {
 	var result []*Grant
 	target := identsToComparable(role.Name)
@@ -245,6 +278,10 @@ type Queue struct {
 
 type View struct {
 	*ast.CreateView
+}
+
+type Sequence struct {
+	*ast.CreateSequence
 }
 
 type Role struct {
@@ -309,6 +346,16 @@ func (g *Generator) GenerateDDL() DDL {
 		if _, exists := g.findSchemaByName(g.from.schemas, identsToComparable(toSchema.Name)); !exists {
 			ddl.Append(toSchema)
 		}
+	}
+
+	// create or alter sequences before any column default that may use them
+	for _, toSequence := range g.to.sequences {
+		fromSequence, exists := g.findSequenceByName(g.from.sequences, identsToComparable(toSequence.Name.Idents...))
+		if !exists {
+			ddl.Append(toSequence)
+			continue
+		}
+		ddl.AppendDDL(g.generateDDLForAlterSequence(fromSequence, toSequence))
 	}
 
 	// drop views before any table or column they may reference is dropped
@@ -432,6 +479,12 @@ func (g *Generator) GenerateDDL() DDL {
 				ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
 				g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(cs.Name))
 			}
+		}
+	}
+	// drop sequences after every column default that may use them has been dropped
+	for _, fromSequence := range g.from.sequences {
+		if _, exists := g.findSequenceByName(g.to.sequences, identsToComparable(fromSequence.Name.Idents...)); !exists {
+			ddl.AppendDDL(g.generateDDLForDropSequence(fromSequence))
 		}
 	}
 	// for views
@@ -1689,6 +1742,55 @@ func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 	return ddl
 }
 
+func (g *Generator) findSequenceByName(sequences []*Sequence, name string) (*Sequence, bool) {
+	for _, s := range sequences {
+		if strings.EqualFold(identsToComparable(s.Name.Idents...), name) {
+			return s, true
+		}
+	}
+	return nil, false
+}
+
+func (g *Generator) generateDDLForDropSequence(sequence *Sequence) DDL {
+	ddl := DDL{}
+	g.markGrantsDropped(g.from.grantsOnSequence(sequence))
+	ddl.Append(&ast.DropSequence{Name: sequence.Name})
+	return ddl
+}
+
+func (g *Generator) generateDDLForAlterSequence(from, to *Sequence) DDL {
+	ddl := DDL{}
+
+	fromOptions := sequenceOptions(from.Options)
+	toOptions := sequenceOptions(to.Options)
+
+	var records []*ast.OptionsDef
+	for _, name := range sequenceOptionNames(toOptions) {
+		toValue := toOptions[name]
+		if fromValue, ok := fromOptions[name]; ok && fromValue.SQL() == toValue.SQL() {
+			continue
+		}
+		records = append(records, &ast.OptionsDef{Name: &ast.Ident{Name: name}, Value: toValue})
+	}
+	for _, name := range sequenceOptionNames(fromOptions) {
+		if _, ok := toOptions[name]; ok {
+			continue
+		}
+		// Spanner rejects a NULL sequence_kind, and a NULL start_with_counter
+		// restarts the counter from 1, which can re-issue values already in use.
+		if name == sequenceOptionKind || name == sequenceOptionStartWithCounter {
+			continue
+		}
+		records = append(records, &ast.OptionsDef{Name: &ast.Ident{Name: name}, Value: &ast.NullLiteral{}})
+	}
+	if len(records) == 0 {
+		return ddl
+	}
+
+	ddl.Append(&ast.AlterSequence{Name: to.Name, Options: &ast.Options{Records: records}})
+	return ddl
+}
+
 func (g *Generator) findSchemaByName(schemas []*Schema, name string) (*Schema, bool) {
 	for _, s := range schemas {
 		if identsToComparable(s.Name) == name {
@@ -1827,6 +1929,14 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 		}
 		return false
 
+	case *ast.PrivilegeOnSequence:
+		for _, name := range p.Names {
+			if _, exists := g.findSequenceByName(database.sequences, identsToComparable(name.Idents...)); exists {
+				return true
+			}
+		}
+		return false
+
 	case *ast.ExecutePrivilegeOnTableFunction:
 		// Not tracked yet; return true so REVOKE precedes DROP ROLE (safe order).
 		// TODO: Check existence when table functions are modeled.
@@ -1871,6 +1981,12 @@ func equalPrivilege(a, b ast.Privilege) bool {
 		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
 	case *ast.PrivilegeOnQueue:
 		bTyped := b.(*ast.PrivilegeOnQueue)
+		if !equalPathLists(aTyped.Names, bTyped.Names) {
+			return false
+		}
+		return equalPrivilegesOnTable(aTyped.Privileges, bTyped.Privileges)
+	case *ast.PrivilegeOnSequence:
+		bTyped := b.(*ast.PrivilegeOnSequence)
 		if !equalPathLists(aTyped.Names, bTyped.Names) {
 			return false
 		}

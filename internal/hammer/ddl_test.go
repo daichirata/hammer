@@ -53,6 +53,18 @@ CREATE CHANGE STREAM LongerDataRetention
 CREATE CHANGE STREAM LongerDataRetention FOR ALL OPTIONS (retention_period = "36h");`,
 		},
 		{
+			name:   "rewrite sequence clause form into options",
+			schema: `CREATE SEQUENCE s1 BIT_REVERSED_POSITIVE SKIP RANGE 1, 1000 START COUNTER WITH 50 OPTIONS (sequence_kind = 'bit_reversed_positive');`,
+			option: &hammer.DDLOption{},
+			want:   `CREATE SEQUENCE s1 OPTIONS (sequence_kind = "bit_reversed_positive", skip_range_min = 1, skip_range_max = 1000, start_with_counter = 50);`,
+		},
+		{
+			name:   "keep sequence options form as written",
+			schema: `CREATE SEQUENCE IF NOT EXISTS s1 OPTIONS (skip_range_max = 1000, skip_range_min = 1, sequence_kind = 'bit_reversed_positive');`,
+			option: &hammer.DDLOption{},
+			want:   `CREATE SEQUENCE IF NOT EXISTS s1 OPTIONS (skip_range_max = 1000, skip_range_min = 1, sequence_kind = "bit_reversed_positive");`,
+		},
+		{
 			name: "Ignore change streams",
 			schema: `CREATE TABLE Users (
   UserID STRING(10) NOT NULL, -- comment
