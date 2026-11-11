@@ -375,10 +375,13 @@ func (g *Generator) GenerateDDL() DDL {
 		ddl.AppendDDL(g.generateDDLForRowDeletionPolicy(fromTable, toTable))
 		ddl.AppendDDL(g.generateDDLForCreateChangeStream(g.from, toTable))
 	}
+
+	// for constraints
 	for _, toTable := range constraintTargets {
 		fromTable, _ := g.findTableByName(g.from.tables, identsToComparable(toTable.Name.Idents...))
 		ddl.AppendDDL(g.generateDDLForConstraints(fromTable, toTable))
 	}
+
 	// for queues
 	for _, toQueue := range g.to.queues {
 		name := identsToComparable(toQueue.Name.Idents...)
@@ -395,6 +398,7 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 		ddl.AppendDDL(g.generateDDLForAlterQueue(fromQueue, toQueue))
 	}
+
 	// for alter change stream
 	for _, toChangeStream := range g.to.changeStreams {
 		fromChangeStream, exists := g.findChangeStreamByName(g.from, identsToComparable(toChangeStream.Name))
@@ -415,6 +419,7 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 		ddl.AppendDDL(g.generateDDLForAlterChangeStream(fromChangeStream, cs))
 	}
+
 	// drop queues
 	for _, fromQueue := range g.from.queues {
 		name := identsToComparable(fromQueue.Name.Idents...)
@@ -425,12 +430,14 @@ func (g *Generator) GenerateDDL() DDL {
 			ddl.AppendDDL(g.generateDDLForDropQueue(fromQueue))
 		}
 	}
+
 	// drop tables
 	for _, fromTable := range g.from.tables {
 		if _, exists := g.findTableByName(g.to.tables, identsToComparable(fromTable.Name.Idents...)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropConstraintIndexAndTable(fromTable))
 		}
 	}
+
 	// drop change streams
 	for _, fromChangeStream := range g.from.changeStreams {
 		if g.isDroppedChangeStream(identsToComparable(fromChangeStream.Name)) {
@@ -455,12 +462,14 @@ func (g *Generator) GenerateDDL() DDL {
 			}
 		}
 	}
+
 	// drop sequences after every column default that may use them has been dropped
 	for _, fromSequence := range g.from.sequences {
 		if _, exists := g.findSequenceByName(g.to.sequences, identsToComparable(fromSequence.Name.Idents...)); !exists {
 			ddl.AppendDDL(g.generateDDLForDropSequence(fromSequence))
 		}
 	}
+
 	// for views
 	for _, toView := range g.to.views {
 		fromView, exists := g.findViewByName(g.from.views, identsToComparable(toView.Name.Idents...))
@@ -632,55 +641,56 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 		ddl.Append(&ast.DropSearchIndex{Name: i.Name})
 	}
 	for _, cs := range table.changeStreams {
-		if !g.isDroppedChangeStream(identsToComparable(cs.Name)) {
-			if csFor, ok := cs.For.(*ast.ChangeStreamForTables); ok && len(csFor.Tables) > 1 {
-				var remainingTables []*ast.ChangeStreamForTable
-				for _, t := range csFor.Tables {
-					if identsToComparable(t.TableName) != identsToComparable(table.Name.Idents...) {
-						remainingTables = append(remainingTables, t)
-					}
-				}
-				hasRemainingTableInTarget := false
-				for _, t := range remainingTables {
-					if _, exists := g.findTableByName(g.to.tables, identsToComparable(t.TableName)); exists {
-						hasRemainingTableInTarget = true
-						break
-					}
-				}
-				if len(remainingTables) > 0 && hasRemainingTableInTarget {
-					if toCS, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
-						alteredCS := &ChangeStream{
-							CreateChangeStream: &ast.CreateChangeStream{
-								Name:    cs.Name,
-								For:     &ast.ChangeStreamForTables{Tables: remainingTables},
-								Options: cs.Options,
-							},
-						}
-						g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
-
-						// Do not emit ALTER here when it is already handled in GenerateDDL
-						// via willCreateOrAlterChangeStreams.
-						// Also emit intermediate SET FOR only when the final target is FOR TABLES.
-						if !g.isWillCreateOrAlterChangeStream(identsToComparable(cs.Name)) && toCS.Type() == ChangeStreamTypeTables {
-							ddl.Append(&ast.AlterChangeStream{
-								Name: cs.Name,
-								ChangeStreamAlteration: &ast.ChangeStreamSetFor{
-									For: &ast.ChangeStreamForTables{Tables: remainingTables},
-								},
-							})
-						}
-						continue
-					}
+		if g.isDroppedChangeStream(identsToComparable(cs.Name)) {
+			continue
+		}
+		if csFor, ok := cs.For.(*ast.ChangeStreamForTables); ok && len(csFor.Tables) > 1 {
+			var remainingTables []*ast.ChangeStreamForTable
+			for _, t := range csFor.Tables {
+				if identsToComparable(t.TableName) != identsToComparable(table.Name.Idents...) {
+					remainingTables = append(remainingTables, t)
 				}
 			}
-			if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); exists {
-				if _, tableExists := g.findTableByName(g.to.tables, identsToComparable(table.Name.Idents...)); !tableExists {
+			hasRemainingTableInTarget := false
+			for _, t := range remainingTables {
+				if _, exists := g.findTableByName(g.to.tables, identsToComparable(t.TableName)); exists {
+					hasRemainingTableInTarget = true
+					break
+				}
+			}
+			if len(remainingTables) > 0 && hasRemainingTableInTarget {
+				if toCS, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
+					alteredCS := &ChangeStream{
+						CreateChangeStream: &ast.CreateChangeStream{
+							Name:    cs.Name,
+							For:     &ast.ChangeStreamForTables{Tables: remainingTables},
+							Options: cs.Options,
+						},
+					}
+					g.alteredChangeStreamStates[identsToComparable(cs.Name)] = alteredCS
+
+					// Do not emit ALTER here when it is already handled in GenerateDDL
+					// via willCreateOrAlterChangeStreams.
+					// Also emit intermediate SET FOR only when the final target is FOR TABLES.
+					if !g.isWillCreateOrAlterChangeStream(identsToComparable(cs.Name)) && toCS.Type() == ChangeStreamTypeTables {
+						ddl.Append(&ast.AlterChangeStream{
+							Name: cs.Name,
+							ChangeStreamAlteration: &ast.ChangeStreamSetFor{
+								For: &ast.ChangeStreamForTables{Tables: remainingTables},
+							},
+						})
+					}
 					continue
 				}
 			}
-			ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
-			g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(cs.Name))
 		}
+		if _, exists := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); exists {
+			if _, tableExists := g.findTableByName(g.to.tables, identsToComparable(table.Name.Idents...)); !tableExists {
+				continue
+			}
+		}
+		ddl.AppendDDL(g.generateDDLForDropChangeStream(cs))
+		g.droppedChangeStreams = append(g.droppedChangeStreams, identsToComparable(cs.Name))
 	}
 	ddl.AppendDDL(g.generateDDLForDropNamedConstraintsMatchingPredicate(func(_ *Table, constraint *ast.TableConstraint) bool {
 		fk, ok := constraint.Constraint.(*ast.ForeignKey)
