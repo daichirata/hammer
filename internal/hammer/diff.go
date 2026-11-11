@@ -155,90 +155,39 @@ func (d *Database) grantsOnTable(table *Table) []*Grant {
 }
 
 func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
-	var result []*Grant
 	target := identsToComparable(path.Idents...)
-	for _, grant := range d.grants {
-		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnTable)
-		if !ok {
-			continue
-		}
-		for _, name := range p.Names {
-			if identsToComparable(name.Idents...) == target {
-				result = append(result, grant)
-				break
-			}
-		}
-	}
-	return result
+	return grantsOn(d, func(p *ast.PrivilegeOnTable) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnView(view *View) []*Grant {
-	var result []*Grant
 	target := identsToComparable(view.Name.Idents...)
-	for _, grant := range d.grants {
-		p, ok := grant.Grant.Privilege.(*ast.SelectPrivilegeOnView)
-		if !ok {
-			continue
-		}
-		for _, name := range p.Names {
-			if identsToComparable(name.Idents...) == target {
-				result = append(result, grant)
-				break
-			}
-		}
-	}
-	return result
+	return grantsOn(d, func(p *ast.SelectPrivilegeOnView) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
-	var result []*Grant
 	target := identsToComparable(cs.Name)
-	for _, grant := range d.grants {
-		p, ok := grant.Grant.Privilege.(*ast.SelectPrivilegeOnChangeStream)
-		if !ok {
-			continue
-		}
-		for _, name := range p.Names {
-			if identsToComparable(name.Idents...) == target {
-				result = append(result, grant)
-				break
-			}
-		}
-	}
-	return result
+	return grantsOn(d, func(p *ast.SelectPrivilegeOnChangeStream) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
-	var result []*Grant
 	target := identsToComparable(queue.Name.Idents...)
-	for _, grant := range d.grants {
-		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnQueue)
-		if !ok {
-			continue
-		}
-		for _, name := range p.Names {
-			if strings.EqualFold(identsToComparable(name.Idents...), target) {
-				result = append(result, grant)
-				break
-			}
-		}
-	}
-	return result
+	return grantsOn(d, func(p *ast.PrivilegeOnQueue) []*ast.Path { return p.Names }, func(name string) bool { return strings.EqualFold(name, target) })
 }
 
 func (d *Database) grantsOnSequence(sequence *Sequence) []*Grant {
-	var result []*Grant
 	target := identsToComparable(sequence.Name.Idents...)
+	return grantsOn(d, func(p *ast.PrivilegeOnSequence) []*ast.Path { return p.Names }, func(name string) bool { return strings.EqualFold(name, target) })
+}
+
+func grantsOn[P ast.Privilege](d *Database, names func(P) []*ast.Path, match func(name string) bool) []*Grant {
+	var result []*Grant
 	for _, grant := range d.grants {
-		p, ok := grant.Grant.Privilege.(*ast.PrivilegeOnSequence)
+		p, ok := grant.Grant.Privilege.(P)
 		if !ok {
 			continue
 		}
-		for _, name := range p.Names {
-			if strings.EqualFold(identsToComparable(name.Idents...), target) {
-				result = append(result, grant)
-				break
-			}
+		if slices.ContainsFunc(names(p), func(n *ast.Path) bool { return match(identsToComparable(n.Idents...)) }) {
+			result = append(result, grant)
 		}
 	}
 	return result
