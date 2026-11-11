@@ -1,6 +1,7 @@
 package hammer
 
 import (
+	stdcmp "cmp"
 	"fmt"
 	"reflect"
 	"slices"
@@ -1087,8 +1088,8 @@ func (g *Generator) interleaveEqual(x, y *Table) bool {
 				return a == b
 			}
 			aVal, bVal := *a, *b
-			aVal.OnDelete = orDefault(a.OnDelete, ast.OnDeleteNoAction)
-			bVal.OnDelete = orDefault(b.OnDelete, ast.OnDeleteNoAction)
+			aVal.OnDelete = stdcmp.Or(a.OnDelete, ast.OnDeleteNoAction)
+			bVal.OnDelete = stdcmp.Or(b.OnDelete, ast.OnDeleteNoAction)
 			return cmp.Equal(aVal, bVal, ignorePos)
 		}),
 	)
@@ -1121,26 +1122,18 @@ var (
 
 	indexKeyComparer = cmp.Comparer(func(a, b *ast.IndexKey) bool {
 		aVal, bVal := *a, *b
-		aVal.Dir = orDefault(a.Dir, ast.DirectionAsc)
-		bVal.Dir = orDefault(b.Dir, ast.DirectionAsc)
+		aVal.Dir = stdcmp.Or(a.Dir, ast.DirectionAsc)
+		bVal.Dir = stdcmp.Or(b.Dir, ast.DirectionAsc)
 		return cmp.Equal(aVal, bVal, ignorePos)
 	})
 
 	orderByItemComparer = cmp.Comparer(func(a, b *ast.OrderByItem) bool {
 		aVal, bVal := *a, *b
-		aVal.Dir = orDefault(a.Dir, ast.DirectionAsc)
-		bVal.Dir = orDefault(b.Dir, ast.DirectionAsc)
+		aVal.Dir = stdcmp.Or(a.Dir, ast.DirectionAsc)
+		bVal.Dir = stdcmp.Or(b.Dir, ast.DirectionAsc)
 		return cmp.Equal(aVal, bVal, ignorePos)
 	})
 )
-
-func orDefault[T comparable](v, def T) T {
-	var zero T
-	if v == zero {
-		return def
-	}
-	return v
-}
 
 func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
 	return cmp.Equal(x, y, ignorePos, indexKeyComparer)
@@ -1190,10 +1183,10 @@ func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 		ignorePos,
 		cmp.Comparer(func(a, b *ast.ForeignKey) bool {
 			aVal, bVal := *a, *b
-			aVal.OnDelete = orDefault(a.OnDelete, ast.OnDeleteNoAction)
-			bVal.OnDelete = orDefault(b.OnDelete, ast.OnDeleteNoAction)
-			aVal.Enforcement = orDefault(a.Enforcement, ast.Enforced)
-			bVal.Enforcement = orDefault(b.Enforcement, ast.Enforced)
+			aVal.OnDelete = stdcmp.Or(a.OnDelete, ast.OnDeleteNoAction)
+			bVal.OnDelete = stdcmp.Or(b.OnDelete, ast.OnDeleteNoAction)
+			aVal.Enforcement = stdcmp.Or(a.Enforcement, ast.Enforced)
+			bVal.Enforcement = stdcmp.Or(b.Enforcement, ast.Enforced)
 			return cmp.Equal(aVal, bVal, ignorePos)
 		}),
 	)
