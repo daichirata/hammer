@@ -28,7 +28,7 @@ func Diff(ddl1, ddl2 DDL) (DDL, error) {
 		to:                        database2,
 		alteredChangeStreamStates: map[string]*ChangeStream{},
 	}
-	return generator.GenerateDDL(), nil
+	return generator.GenerateDDL()
 }
 
 func NewDatabase(ddl DDL) (*Database, error) {
@@ -307,9 +307,11 @@ type Generator struct {
 	droppedGrants                  []*Grant
 	willCreateOrAlterChangeStreams []*ChangeStream
 	alteredChangeStreamStates      map[string]*ChangeStream
+
+	err error
 }
 
-func (g *Generator) GenerateDDL() DDL {
+func (g *Generator) GenerateDDL() (DDL, error) {
 	ddl := DDL{}
 
 	// for alter database
@@ -524,7 +526,10 @@ func (g *Generator) GenerateDDL() DDL {
 		}
 	}
 
-	return ddl
+	if g.err != nil {
+		return DDL{}, g.err
+	}
+	return ddl, nil
 }
 
 func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
@@ -854,7 +859,12 @@ func (g *Generator) generateDDLForAddColumn(table *ast.Path, col *ast.ColumnDef)
 		return ddl
 	}
 	// A NOT NULL column needs a default to fill existing rows.
-	ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AddColumn{Column: withZeroDefault(col)}})
+	withDefault, err := withZeroDefault(col)
+	if err != nil {
+		g.err = stdcmp.Or(g.err, fmt.Errorf("cannot add column %s to %s: %w", col.Name.SQL(), table.SQL(), err))
+		return ddl
+	}
+	ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AddColumn{Column: withDefault}})
 	ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AlterColumn{Name: col.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 	return ddl
 }
@@ -1302,30 +1312,30 @@ func optionsValueFromName(options *ast.Options, name string) *ast.Expr {
 	return nil
 }
 
-func defaultByScalarTypeName(t ast.ScalarTypeName) ast.Expr {
+func defaultByScalarTypeName(t ast.ScalarTypeName) (ast.Expr, error) {
 	switch t {
 	case ast.BoolTypeName:
-		return &ast.BoolLiteral{Value: false}
+		return &ast.BoolLiteral{Value: false}, nil
 	case ast.Int64TypeName:
-		return &ast.IntLiteral{Value: "0"}
+		return &ast.IntLiteral{Value: "0"}, nil
 	case ast.Float32TypeName, ast.Float64TypeName:
-		return &ast.FloatLiteral{Value: "0"}
+		return &ast.FloatLiteral{Value: "0"}, nil
 	case ast.StringTypeName:
-		return &ast.StringLiteral{Value: ""}
+		return &ast.StringLiteral{Value: ""}, nil
 	case ast.BytesTypeName:
-		return &ast.BytesLiteral{Value: nil}
+		return &ast.BytesLiteral{Value: nil}, nil
 	case ast.DateTypeName:
-		return &ast.DateLiteral{Value: &ast.StringLiteral{Value: "0001-01-01"}}
+		return &ast.DateLiteral{Value: &ast.StringLiteral{Value: "0001-01-01"}}, nil
 	case ast.TimestampTypeName:
-		return &ast.TimestampLiteral{Value: &ast.StringLiteral{Value: "0001-01-01T00:00:00Z"}}
+		return &ast.TimestampLiteral{Value: &ast.StringLiteral{Value: "0001-01-01T00:00:00Z"}}, nil
 	case ast.NumericTypeName:
-		return &ast.NumericLiteral{Value: &ast.StringLiteral{Value: "0"}}
+		return &ast.NumericLiteral{Value: &ast.StringLiteral{Value: "0"}}, nil
 	case ast.JSONTypeName:
-		return &ast.JSONLiteral{Value: &ast.StringLiteral{Value: "{}"}}
+		return &ast.JSONLiteral{Value: &ast.StringLiteral{Value: "{}"}}, nil
 	case ast.TokenListTypeName:
-		return &ast.BytesLiteral{Value: nil}
+		return &ast.BytesLiteral{Value: nil}, nil
 	default:
-		panic("not implemented")
+		return nil, fmt.Errorf("no zero value for type %s", t)
 	}
 }
 
@@ -1340,19 +1350,27 @@ func identsToComparable(is ...*ast.Ident) string {
 	return b.String()
 }
 
-func withZeroDefault(col *ast.ColumnDef) *ast.ColumnDef {
-	c := *col
-	switch t := col.Type.(type) {
-	case *ast.ArraySchemaType:
-		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
-	case *ast.ScalarSchemaType:
-		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
-	case *ast.SizedSchemaType:
-		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
-	case *ast.NamedType:
-		panic("not implemented")
+func withZeroDefault(col *ast.ColumnDef) (*ast.ColumnDef, error) {
+	expr, err := zeroValue(col.Type)
+	if err != nil {
+		return nil, err
 	}
-	return &c
+	c := *col
+	c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: expr}
+	return &c, nil
+}
+
+func zeroValue(t ast.SchemaType) (ast.Expr, error) {
+	switch t := t.(type) {
+	case *ast.ArraySchemaType:
+		return &ast.ArrayLiteral{Values: nil}, nil
+	case *ast.ScalarSchemaType:
+		return defaultByScalarTypeName(t.Name)
+	case *ast.SizedSchemaType:
+		return defaultByScalarTypeName(t.Name)
+	default:
+		return nil, fmt.Errorf("no zero value for type %s", t.SQL())
+	}
 }
 
 func findFirst[T any](items []T, match func(T) bool) (T, bool) {

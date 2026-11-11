@@ -123,13 +123,12 @@ func (u Update) defaultValue() string {
 	switch t := u.Def.Type.(type) {
 	case *ast.ArraySchemaType:
 		return "[]"
-	case *ast.ScalarSchemaType:
-		return defaultByScalarTypeName(t.Name).SQL()
-	case *ast.SizedSchemaType:
-		return defaultByScalarTypeName(t.Name).SQL()
-	default:
-		return "''"
+	case *ast.ScalarSchemaType, *ast.SizedSchemaType:
+		if expr, err := zeroValue(t); err == nil {
+			return expr.SQL()
+		}
 	}
+	return "''"
 }
 
 func (u Update) SQL() string {

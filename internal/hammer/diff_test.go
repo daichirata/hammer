@@ -60,6 +60,21 @@ CREATE TABLE t2 (
 			from:    `CREATE VECTOR INDEX vi ON t1(e) OPTIONS (distance_type = 'COSINE');`,
 			wantErr: "unexpected ddl statement",
 		},
+		{
+			name: "add not null column of a type without a zero value",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 examples.Status NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			wantErr: "cannot add column t1_2 to t1: no zero value for type examples.Status",
+		},
 	})
 }
 
