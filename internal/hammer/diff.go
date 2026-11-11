@@ -1329,30 +1329,42 @@ func findFirst[T any](items []T, match func(T) bool) (T, bool) {
 }
 
 func (g *Generator) findTableByName(tables []*Table, name string) (*Table, bool) {
-	return findFirst(tables, func(t *Table) bool { return strings.EqualFold(identsToComparable(t.Name.Idents...), name) })
+	return findFirst(tables, func(t *Table) bool {
+		return strings.EqualFold(identsToComparable(t.Name.Idents...), name)
+	})
 }
 
 func (g *Generator) findColumnByName(cols []*ast.ColumnDef, name string) (*ast.ColumnDef, bool) {
-	return findFirst(cols, func(c *ast.ColumnDef) bool { return strings.EqualFold(identsToComparable(c.Name), name) })
+	return findFirst(cols, func(c *ast.ColumnDef) bool {
+		return strings.EqualFold(identsToComparable(c.Name), name)
+	})
 }
 
 func (g *Generator) findIdentByName(idents []*ast.Ident, name string) (*ast.Ident, bool) {
-	return findFirst(idents, func(i *ast.Ident) bool { return strings.EqualFold(identsToComparable(i), name) })
+	return findFirst(idents, func(i *ast.Ident) bool {
+		return strings.EqualFold(identsToComparable(i), name)
+	})
 }
 
 func (g *Generator) findNamedConstraint(constraints []*ast.TableConstraint, name string) (*ast.TableConstraint, bool) {
 	if name == "" {
 		return nil, false
 	}
-	return findFirst(constraints, func(c *ast.TableConstraint) bool { return identsToComparable(c.Name) == name })
+	return findFirst(constraints, func(c *ast.TableConstraint) bool {
+		return identsToComparable(c.Name) == name
+	})
 }
 
 func (g *Generator) findUnnamedConstraint(constraints []*ast.TableConstraint, item *ast.TableConstraint) (*ast.TableConstraint, bool) {
-	return findFirst(constraints, func(c *ast.TableConstraint) bool { return g.constraintEqual(c, item) })
+	return findFirst(constraints, func(c *ast.TableConstraint) bool {
+		return g.constraintEqual(c, item)
+	})
 }
 
 func (g *Generator) findIndexByName(indexes []*ast.CreateIndex, name string) (*ast.CreateIndex, bool) {
-	return findFirst(indexes, func(i *ast.CreateIndex) bool { return identsToComparable(i.Name.Idents...) == name })
+	return findFirst(indexes, func(i *ast.CreateIndex) bool {
+		return identsToComparable(i.Name.Idents...) == name
+	})
 }
 
 func (g *Generator) findIndexByColumn(indexes []*ast.CreateIndex, column string) []*ast.CreateIndex {
@@ -1382,7 +1394,9 @@ func indexReferencesColumn(i *ast.CreateIndex, column string) bool {
 }
 
 func (g *Generator) findSearchIndexByName(indexes []*ast.CreateSearchIndex, name string) (*ast.CreateSearchIndex, bool) {
-	return findFirst(indexes, func(i *ast.CreateSearchIndex) bool { return identsToComparable(i.Name.Idents...) == name })
+	return findFirst(indexes, func(i *ast.CreateSearchIndex) bool {
+		return identsToComparable(i.Name.Idents...) == name
+	})
 }
 
 func (g *Generator) findSearchIndexByColumn(indexes []*ast.CreateSearchIndex, column string) []*ast.CreateSearchIndex {
@@ -1544,7 +1558,9 @@ func (g *Generator) generateDDLForDropChangeStream(changeStream *ChangeStream) D
 }
 
 func (g *Generator) findQueueByName(queues []*Queue, name string) (*Queue, bool) {
-	return findFirst(queues, func(q *Queue) bool { return strings.EqualFold(identsToComparable(q.Name.Idents...), name) })
+	return findFirst(queues, func(q *Queue) bool {
+		return strings.EqualFold(identsToComparable(q.Name.Idents...), name)
+	})
 }
 
 func (g *Generator) isDroppedQueue(name string) bool {
@@ -1626,7 +1642,9 @@ func (g *Generator) generateDDLForDropQueue(queue *Queue) DDL {
 }
 
 func (g *Generator) findSequenceByName(sequences []*Sequence, name string) (*Sequence, bool) {
-	return findFirst(sequences, func(s *Sequence) bool { return strings.EqualFold(identsToComparable(s.Name.Idents...), name) })
+	return findFirst(sequences, func(s *Sequence) bool {
+		return strings.EqualFold(identsToComparable(s.Name.Idents...), name)
+	})
 }
 
 func (g *Generator) generateDDLForDropSequence(sequence *Sequence) DDL {
@@ -1670,11 +1688,15 @@ func (g *Generator) generateDDLForAlterSequence(from, to *Sequence) DDL {
 }
 
 func (g *Generator) findSchemaByName(schemas []*Schema, name string) (*Schema, bool) {
-	return findFirst(schemas, func(s *Schema) bool { return identsToComparable(s.Name) == name })
+	return findFirst(schemas, func(s *Schema) bool {
+		return identsToComparable(s.Name) == name
+	})
 }
 
 func (g *Generator) findViewByName(views []*View, name string) (*View, bool) {
-	return findFirst(views, func(v *View) bool { return identsToComparable(v.Name.Idents...) == name })
+	return findFirst(views, func(v *View) bool {
+		return identsToComparable(v.Name.Idents...) == name
+	})
 }
 
 func (g *Generator) viewEqual(x, y *View) bool {
@@ -1702,7 +1724,9 @@ func isColHidden(col *ast.ColumnDef) bool {
 }
 
 func (g *Generator) findRoleByName(roles []*Role, name string) (*Role, bool) {
-	return findFirst(roles, func(r *Role) bool { return identsToComparable(r.Name) == name })
+	return findFirst(roles, func(r *Role) bool {
+		return identsToComparable(r.Name) == name
+	})
 }
 
 func (g *Generator) generateDDLForDropRole(role *Role) DDL {
@@ -1728,7 +1752,9 @@ func (g *Generator) generateDDLForDropRole(role *Role) DDL {
 }
 
 func (g *Generator) findGrant(grants []*Grant, grant *Grant) (*Grant, bool) {
-	return findFirst(grants, func(grt *Grant) bool { return equalGrant(grt, grant) })
+	return findFirst(grants, func(grt *Grant) bool {
+		return equalGrant(grt, grant)
+	})
 }
 
 func (g *Generator) generateDDLForRevokeAll(grant *Grant) DDL {
