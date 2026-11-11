@@ -536,7 +536,6 @@ func (g *Generator) generateDDLForAlterDatabaseOptions() DDL {
 		return ddl
 	}
 	if g.to.alterDatabaseOptions == nil {
-		// set all null
 		ddl.Append(&ast.AlterDatabase{
 			Name: g.from.alterDatabaseOptions.Name,
 			Options: &ast.Options{
@@ -648,8 +647,6 @@ func (g *Generator) generateDDLForDropConstraintIndexAndTable(table *Table) DDL 
 						break
 					}
 				}
-				// Only run ALTER when the change stream exists in g.to.
-				// If it does not exist in g.to (i.e. it will be dropped), continue to DROP logic.
 				if len(remainingTables) > 0 && hasRemainingTableInTarget {
 					if toCS, csExistsInTarget := g.findChangeStreamByName(g.to, identsToComparable(cs.Name)); csExistsInTarget {
 						alteredCS := &ChangeStream{
@@ -1625,7 +1622,6 @@ func (g *Generator) generateDDLForAlterQueue(from, to *Queue) DDL {
 	if x, y := from.Cluster, to.Cluster; x != nil && y != nil {
 		switch {
 		case x.Enforced == y.Enforced && queueOnDelete(x) == queueOnDelete(y):
-			// The interleave has not changed.
 		case x.Enforced && y.Enforced:
 			ddl.Append(&ast.AlterQueue{Name: to.Name, QueueAlteration: &ast.SetOnDelete{OnDelete: queueOnDelete(y)}})
 		case !x.Enforced && queueOnDelete(y) == ast.OnDeleteCascade:
