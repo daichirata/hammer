@@ -1091,20 +1091,15 @@ func (g *Generator) isDroppedGrant(grant *Grant) bool {
 
 func (g *Generator) interleaveEqual(x, y *Table) bool {
 	return cmp.Equal(x.Cluster, y.Cluster,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmp.Comparer(func(a, b *ast.Cluster) bool {
 			if a == nil || b == nil {
 				return a == b
 			}
-			aVal := *a
-			bVal := *b
-			if aVal.OnDelete == "" {
-				aVal.OnDelete = ast.OnDeleteNoAction
-			}
-			if bVal.OnDelete == "" {
-				bVal.OnDelete = ast.OnDeleteNoAction
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			aVal, bVal := *a, *b
+			aVal.OnDelete = orDefault(a.OnDelete, ast.OnDeleteNoAction)
+			bVal.OnDelete = orDefault(b.OnDelete, ast.OnDeleteNoAction)
+			return cmp.Equal(aVal, bVal, ignorePos)
 		}),
 	)
 }
@@ -1131,20 +1126,34 @@ func (g *Generator) primaryKeyEqual(x, y *Table) bool {
 	return true
 }
 
+var (
+	ignorePos = cmpopts.IgnoreTypes(token.Pos(0))
+
+	indexKeyComparer = cmp.Comparer(func(a, b *ast.IndexKey) bool {
+		aVal, bVal := *a, *b
+		aVal.Dir = orDefault(a.Dir, ast.DirectionAsc)
+		bVal.Dir = orDefault(b.Dir, ast.DirectionAsc)
+		return cmp.Equal(aVal, bVal, ignorePos)
+	})
+
+	orderByItemComparer = cmp.Comparer(func(a, b *ast.OrderByItem) bool {
+		aVal, bVal := *a, *b
+		aVal.Dir = orDefault(a.Dir, ast.DirectionAsc)
+		bVal.Dir = orDefault(b.Dir, ast.DirectionAsc)
+		return cmp.Equal(aVal, bVal, ignorePos)
+	})
+)
+
+func orDefault[T comparable](v, def T) T {
+	var zero T
+	if v == zero {
+		return def
+	}
+	return v
+}
+
 func (g *Generator) indexKeysEqual(x, y []*ast.IndexKey) bool {
-	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
-		cmp.Comparer(func(a, b *ast.IndexKey) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.Dir == "" {
-				aVal.Dir = ast.DirectionAsc
-			}
-			if bVal.Dir == "" {
-				bVal.Dir = ast.DirectionAsc
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
-		}))
+	return cmp.Equal(x, y, ignorePos, indexKeyComparer)
 }
 
 // primaryKeysForComparison folds the inline `id INT64 PRIMARY KEY` column-def
@@ -1166,7 +1175,7 @@ func primaryKeysForComparison(table *Table) []*ast.IndexKey {
 
 func (g *Generator) columnDefEqual(x, y *ast.ColumnDef) bool {
 	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmpopts.IgnoreFields(ast.ColumnDef{}, "PrimaryKey"),
 		cmp.Comparer(func(x, y *ast.Ident) bool {
 			return strings.EqualFold(x.Name, y.Name)
@@ -1179,7 +1188,7 @@ func (g *Generator) columnDefEqual(x, y *ast.ColumnDef) bool {
 
 func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
 	return cmp.Equal(x.Type, y.Type,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmp.Comparer(func(x, y *ast.SizedSchemaType) bool {
 			return x.Name == y.Name
 		}),
@@ -1188,66 +1197,34 @@ func (g *Generator) columnTypeEqual(x, y *ast.ColumnDef) bool {
 
 func (g *Generator) constraintEqual(x, y *ast.TableConstraint) bool {
 	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmp.Comparer(func(a, b *ast.ForeignKey) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.OnDelete == "" {
-				aVal.OnDelete = ast.OnDeleteNoAction
-			}
-			if bVal.OnDelete == "" {
-				bVal.OnDelete = ast.OnDeleteNoAction
-			}
-			if aVal.Enforcement == "" {
-				aVal.Enforcement = ast.Enforced
-			}
-			if bVal.Enforcement == "" {
-				bVal.Enforcement = ast.Enforced
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
+			aVal, bVal := *a, *b
+			aVal.OnDelete = orDefault(a.OnDelete, ast.OnDeleteNoAction)
+			bVal.OnDelete = orDefault(b.OnDelete, ast.OnDeleteNoAction)
+			aVal.Enforcement = orDefault(a.Enforcement, ast.Enforced)
+			bVal.Enforcement = orDefault(b.Enforcement, ast.Enforced)
+			return cmp.Equal(aVal, bVal, ignorePos)
 		}),
 	)
 }
 
 func (g *Generator) indexEqualIgnoringStoring(x, y *ast.CreateIndex) bool {
 	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmpopts.IgnoreTypes(&ast.Storing{}),
 		cmpopts.IgnoreFields(ast.CreateIndex{}, "IfNotExists"),
-		cmp.Comparer(func(a, b *ast.IndexKey) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.Dir == "" {
-				aVal.Dir = ast.DirectionAsc
-			}
-			if bVal.Dir == "" {
-				bVal.Dir = ast.DirectionAsc
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
-		}),
+		indexKeyComparer,
 	)
 }
 
 func (g *Generator) searchIndexEqual(x, y *ast.CreateSearchIndex) bool {
-	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
-		cmp.Comparer(func(a, b *ast.OrderByItem) bool {
-			aVal := *a
-			bVal := *b
-			if aVal.Dir == "" {
-				aVal.Dir = ast.DirectionAsc
-			}
-			if bVal.Dir == "" {
-				bVal.Dir = ast.DirectionAsc
-			}
-			return cmp.Equal(aVal, bVal, cmpopts.IgnoreTypes(token.Pos(0)))
-		}),
-	)
+	return cmp.Equal(x, y, ignorePos, orderByItemComparer)
 }
 
 func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
 	return cmp.Equal(x, y,
-		cmpopts.IgnoreTypes(token.Pos(0)),
+		ignorePos,
 		cmpopts.SortSlices(func(a, b *ast.ChangeStreamForTable) bool {
 			return identsToComparable(a.TableName) < identsToComparable(b.TableName)
 		}),
@@ -1258,11 +1235,11 @@ func (g *Generator) changeStreamForEqual(x, y ast.ChangeStreamFor) bool {
 }
 
 func (g *Generator) columnDefaultExprEqual(x, y ast.ColumnDefaultSemantics) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+	return cmp.Equal(x, y, ignorePos)
 }
 
 func (g *Generator) createRowDeletionPolicyEqual(x, y *ast.CreateRowDeletionPolicy) bool {
-	return cmp.Equal(x, y, cmpopts.IgnoreTypes(token.Pos(0)))
+	return cmp.Equal(x, y, ignorePos)
 }
 
 func (g *Generator) optionsEqual(x, y *ast.Options) bool {
@@ -1283,7 +1260,7 @@ func (g *Generator) optionsToMap(options *ast.Options) map[string]string {
 func (g *Generator) optionsValueEqual(x, y *ast.Options, name string) bool {
 	xv := optionsValueFromName(x, name)
 	yv := optionsValueFromName(y, name)
-	return cmp.Equal(xv, yv, cmpopts.IgnoreTypes(token.Pos(0)))
+	return cmp.Equal(xv, yv, ignorePos)
 }
 
 func optionsValueFromName(options *ast.Options, name string) *ast.Expr {
