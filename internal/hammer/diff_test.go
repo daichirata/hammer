@@ -75,6 +75,22 @@ CREATE TABLE t1 (
 `,
 			wantErr: "cannot add column t1_2 to t1: no zero value for type examples.Status",
 		},
+		{
+			name: "set not null on a column of a type without a zero value",
+			from: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 examples.Status,
+) PRIMARY KEY(t1_1);
+`,
+			to: `
+CREATE TABLE t1 (
+  t1_1 INT64 NOT NULL,
+  t1_2 examples.Status NOT NULL,
+) PRIMARY KEY(t1_1);
+`,
+			wantErr: "cannot set column t1_2 of t1 to NOT NULL: no zero value for type examples.Status",
+		},
 	})
 }
 

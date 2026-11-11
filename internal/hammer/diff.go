@@ -830,6 +830,12 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 				ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(to.Name, toCol.Name))
 			}
 			if !fromCol.NotNull && toCol.NotNull {
+				if toCol.DefaultSemantics == nil {
+					if _, err := zeroValue(toCol.Type); err != nil {
+						g.err = stdcmp.Or(g.err, fmt.Errorf("cannot set column %s of %s to NOT NULL: %w", toCol.Name.SQL(), to.Name.SQL(), err))
+						continue
+					}
+				}
 				ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
 			}
 			ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
