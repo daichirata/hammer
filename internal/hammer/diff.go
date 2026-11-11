@@ -754,12 +754,7 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		fromCol, exists := g.findColumnByName(from.Columns, identsToComparable(toCol.Name))
 
 		if !exists {
-			if toCol.NotNull && toCol.DefaultSemantics == nil {
-				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefaultSemantics(toCol)}})
-				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
-			} else {
-				ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
-			}
+			ddl.AppendDDL(g.generateDDLForAddColumn(to.Name, toCol))
 			continue
 		}
 
@@ -816,6 +811,19 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 		}
 	}
+	return ddl
+}
+
+func (g *Generator) generateDDLForAddColumn(table *ast.Path, col *ast.ColumnDef) DDL {
+	ddl := DDL{}
+
+	if !col.NotNull || col.DefaultSemantics != nil {
+		ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AddColumn{Column: col}})
+		return ddl
+	}
+	// A NOT NULL column needs a default to fill existing rows.
+	ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AddColumn{Column: withZeroDefault(col)}})
+	ddl.Append(&ast.AlterTable{Name: table, TableAlteration: &ast.AlterColumn{Name: col.Name, Alteration: &ast.AlterColumnDropDefault{}}})
 	return ddl
 }
 
@@ -883,12 +891,7 @@ func (g *Generator) generateDDLForDropAndCreateColumn(from, to *Table, fromCol, 
 
 	ddl.AppendDDL(g.generateDDLForDropColumn(from.Name, fromCol.Name))
 
-	if toCol.NotNull && toCol.DefaultSemantics == nil {
-		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: g.setDefaultSemantics(toCol)}})
-		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AlterColumn{Name: toCol.Name, Alteration: &ast.AlterColumnDropDefault{}}})
-	} else {
-		ddl.Append(&ast.AlterTable{Name: to.Name, TableAlteration: &ast.AddColumn{Column: toCol}})
-	}
+	ddl.AppendDDL(g.generateDDLForAddColumn(to.Name, toCol))
 	for _, i := range indexes {
 		ddl.Append(i)
 	}
@@ -1313,19 +1316,19 @@ func identsToComparable(is ...*ast.Ident) string {
 	return b.String()
 }
 
-func (g *Generator) setDefaultSemantics(col *ast.ColumnDef) *ast.ColumnDef {
+func withZeroDefault(col *ast.ColumnDef) *ast.ColumnDef {
+	c := *col
 	switch t := col.Type.(type) {
 	case *ast.ArraySchemaType:
-		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
+		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: &ast.ArrayLiteral{Values: nil}}
 	case *ast.ScalarSchemaType:
-		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
+		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
 	case *ast.SizedSchemaType:
-		col.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
+		c.DefaultSemantics = &ast.ColumnDefaultExpr{Expr: defaultByScalarTypeName(t.Name)}
 	case *ast.NamedType:
 		panic("not implemented")
 	}
-
-	return col
+	return &c
 }
 
 func findFirst[T any](items []T, match func(T) bool) (T, bool) {
