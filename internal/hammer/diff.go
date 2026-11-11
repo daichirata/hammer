@@ -767,43 +767,25 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 			continue
 		}
 
-		requireDropAndCreateByDefault := func(d ast.ColumnDefaultSemantics) bool {
-			if d == nil {
-				return false
-			}
-			switch d.(type) {
-			case *ast.ColumnDefaultExpr:
-				return false
-			default:
-				return true
-			}
-		}
-		if g.columnTypeEqual(fromCol, toCol) && !requireDropAndCreateByDefault(fromCol.DefaultSemantics) && !requireDropAndCreateByDefault(toCol.DefaultSemantics) {
-			notNullChanged := fromCol.NotNull != toCol.NotNull
-			if st, ok := fromCol.Type.(*ast.ScalarSchemaType); ok && st.Name == ast.TimestampTypeName {
-				if notNullChanged || !g.columnDefaultExprEqual(fromCol.DefaultSemantics, toCol.DefaultSemantics) {
-					if notNullChanged {
-						ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(to.Name, toCol.Name))
-					}
-					if !fromCol.NotNull && toCol.NotNull {
-						ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
-					}
-					ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
-				}
-				if !g.optionsValueEqual(fromCol.Options, toCol.Options, "allow_commit_timestamp") {
-					ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol, SetOptions: true})
-				}
-			} else {
-				if notNullChanged {
-					ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(to.Name, toCol.Name))
-				}
-				if !fromCol.NotNull && toCol.NotNull {
-					ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
-				}
-				ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
-			}
-		} else {
+		if !g.columnTypeEqual(fromCol, toCol) || requireDropAndCreateByDefault(fromCol.DefaultSemantics) || requireDropAndCreateByDefault(toCol.DefaultSemantics) {
 			ddl.AppendDDL(g.generateDDLForDropAndCreateColumn(from, to, fromCol, toCol))
+			continue
+		}
+
+		notNullChanged := fromCol.NotNull != toCol.NotNull
+		st, ok := fromCol.Type.(*ast.ScalarSchemaType)
+		isTimestamp := ok && st.Name == ast.TimestampTypeName
+		if !isTimestamp || notNullChanged || !g.columnDefaultExprEqual(fromCol.DefaultSemantics, toCol.DefaultSemantics) {
+			if notNullChanged {
+				ddl.AppendDDL(g.generateDDLForDropForeignKeysReferencingColumn(to.Name, toCol.Name))
+			}
+			if !fromCol.NotNull && toCol.NotNull {
+				ddl.Append(Update{Table: to.Name.SQL(), Def: toCol})
+			}
+			ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol})
+		}
+		if isTimestamp && !g.optionsValueEqual(fromCol.Options, toCol.Options, "allow_commit_timestamp") {
+			ddl.Append(AlterColumn{Table: to.Name.SQL(), Def: toCol, SetOptions: true})
 		}
 	}
 	for _, fromCol := range from.Columns {
@@ -812,6 +794,11 @@ func (g *Generator) generateDDLForColumns(from, to *Table) DDL {
 		}
 	}
 	return ddl
+}
+
+func requireDropAndCreateByDefault(d ast.ColumnDefaultSemantics) bool {
+	_, isExpr := d.(*ast.ColumnDefaultExpr)
+	return d != nil && !isExpr
 }
 
 func (g *Generator) generateDDLForAddColumn(table *ast.Path, col *ast.ColumnDef) DDL {
