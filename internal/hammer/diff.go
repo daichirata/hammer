@@ -157,41 +157,65 @@ func (d *Database) grantsOnTable(table *Table) []*Grant {
 
 func (d *Database) grantsFromPath(path *ast.Path) []*Grant {
 	target := identsToComparable(path.Idents...)
-	return grantsOn(d, func(p *ast.PrivilegeOnTable) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
+	return grantsOn[*ast.PrivilegeOnTable](d, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnView(view *View) []*Grant {
 	target := identsToComparable(view.Name.Idents...)
-	return grantsOn(d, func(p *ast.SelectPrivilegeOnView) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
+	return grantsOn[*ast.SelectPrivilegeOnView](d, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnChangeStream(cs *ChangeStream) []*Grant {
 	target := identsToComparable(cs.Name)
-	return grantsOn(d, func(p *ast.SelectPrivilegeOnChangeStream) []*ast.Path { return p.Names }, func(name string) bool { return name == target })
+	return grantsOn[*ast.SelectPrivilegeOnChangeStream](d, func(name string) bool { return name == target })
 }
 
 func (d *Database) grantsOnQueue(queue *Queue) []*Grant {
 	target := identsToComparable(queue.Name.Idents...)
-	return grantsOn(d, func(p *ast.PrivilegeOnQueue) []*ast.Path { return p.Names }, func(name string) bool { return strings.EqualFold(name, target) })
+	return grantsOn[*ast.PrivilegeOnQueue](d, func(name string) bool { return strings.EqualFold(name, target) })
 }
 
 func (d *Database) grantsOnSequence(sequence *Sequence) []*Grant {
 	target := identsToComparable(sequence.Name.Idents...)
-	return grantsOn(d, func(p *ast.PrivilegeOnSequence) []*ast.Path { return p.Names }, func(name string) bool { return strings.EqualFold(name, target) })
+	return grantsOn[*ast.PrivilegeOnSequence](d, func(name string) bool { return strings.EqualFold(name, target) })
 }
 
-func grantsOn[P ast.Privilege](d *Database, names func(P) []*ast.Path, match func(name string) bool) []*Grant {
+func grantsOn[P ast.Privilege](d *Database, match func(name string) bool) []*Grant {
 	var result []*Grant
 	for _, grant := range d.grants {
 		p, ok := grant.Grant.Privilege.(P)
 		if !ok {
 			continue
 		}
-		if slices.ContainsFunc(names(p), func(n *ast.Path) bool { return match(identsToComparable(n.Idents...)) }) {
+		if privilegeNamesMatch(p, match) {
 			result = append(result, grant)
 		}
 	}
 	return result
+}
+
+func privilegeNamesMatch(p ast.Privilege, match func(name string) bool) bool {
+	return slices.ContainsFunc(privilegeNames(p), func(n *ast.Path) bool {
+		return match(identsToComparable(n.Idents...))
+	})
+}
+
+func privilegeNames(p ast.Privilege) []*ast.Path {
+	switch p := p.(type) {
+	case *ast.PrivilegeOnTable:
+		return p.Names
+	case *ast.SelectPrivilegeOnView:
+		return p.Names
+	case *ast.SelectPrivilegeOnChangeStream:
+		return p.Names
+	case *ast.PrivilegeOnQueue:
+		return p.Names
+	case *ast.PrivilegeOnSequence:
+		return p.Names
+	case *ast.ExecutePrivilegeOnTableFunction:
+		return p.Names
+	}
+	return nil
 }
 
 func (d *Database) grantsOnRole(role *Role) []*Grant {
@@ -1771,55 +1795,26 @@ func (g *Generator) existsGrantResourceIn(grant *Grant, database *Database) bool
 	if grant == nil || grant.Grant == nil || grant.Grant.Privilege == nil {
 		return false
 	}
-	switch p := grant.Grant.Privilege.(type) {
+	var exists func(name string) bool
+	switch grant.Grant.Privilege.(type) {
 	case *ast.PrivilegeOnTable:
-		for _, name := range p.Names {
-			if _, exists := g.findTableByName(database.tables, identsToComparable(name.Idents...)); exists {
-				return true
-			}
-		}
-		return false
-
+		exists = func(name string) bool { _, ok := g.findTableByName(database.tables, name); return ok }
 	case *ast.SelectPrivilegeOnView:
-		for _, name := range p.Names {
-			if _, exists := g.findViewByName(database.views, identsToComparable(name.Idents...)); exists {
-				return true
-			}
-		}
-		return false
-
+		exists = func(name string) bool { _, ok := g.findViewByName(database.views, name); return ok }
 	case *ast.SelectPrivilegeOnChangeStream:
-		for _, name := range p.Names {
-			if _, exists := g.findChangeStreamByName(database, identsToComparable(name.Idents...)); exists {
-				return true
-			}
-		}
-		return false
-
+		exists = func(name string) bool { _, ok := g.findChangeStreamByName(database, name); return ok }
 	case *ast.PrivilegeOnQueue:
-		for _, name := range p.Names {
-			if _, exists := g.findQueueByName(database.queues, identsToComparable(name.Idents...)); exists {
-				return true
-			}
-		}
-		return false
-
+		exists = func(name string) bool { _, ok := g.findQueueByName(database.queues, name); return ok }
 	case *ast.PrivilegeOnSequence:
-		for _, name := range p.Names {
-			if _, exists := g.findSequenceByName(database.sequences, identsToComparable(name.Idents...)); exists {
-				return true
-			}
-		}
-		return false
-
+		exists = func(name string) bool { _, ok := g.findSequenceByName(database.sequences, name); return ok }
 	case *ast.ExecutePrivilegeOnTableFunction:
 		// Not tracked yet; return true so REVOKE precedes DROP ROLE (safe order).
 		// TODO: Check existence when table functions are modeled.
 		return true
-
 	default:
 		return false
 	}
+	return privilegeNamesMatch(grant.Grant.Privilege, exists)
 }
 
 func equalGrant(a, b *Grant) bool {
