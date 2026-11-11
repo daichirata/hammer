@@ -1,6 +1,12 @@
 package hammer_test
 
-import "testing"
+import (
+	"context"
+	"slices"
+	"testing"
+
+	"github.com/daichirata/hammer/internal/hammer"
+)
 
 func TestDiffTable(t *testing.T) {
 	runDiffTests(t, []diffTestCase{
@@ -1287,4 +1293,34 @@ CREATE TABLE t1 (
 			},
 		},
 	})
+}
+
+func TestDiffAddNotNullColumnKeepsTarget(t *testing.T) {
+	ctx := context.Background()
+	from, err := StringSource(`CREATE TABLE t1 (t1_1 INT64 NOT NULL) PRIMARY KEY(t1_1);`).DDL(ctx, &hammer.DDLOption{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	to, err := StringSource(`CREATE TABLE t1 (t1_1 INT64 NOT NULL, t1_2 INT64 NOT NULL) PRIMARY KEY(t1_1);`).DDL(ctx, &hammer.DDLOption{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toSQL := convertStrings(to)
+	want := []string{
+		`ALTER TABLE t1 ADD COLUMN t1_2 INT64 NOT NULL DEFAULT (0)`,
+		`ALTER TABLE t1 ALTER COLUMN t1_2 DROP DEFAULT`,
+	}
+
+	for i := range 2 {
+		ddl, err := hammer.Diff(from, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actual := convertStrings(ddl); !slices.Equal(want, actual) {
+			t.Errorf("Diff call %d:%s", i+1, formatDDLMismatch(want, actual))
+		}
+		if actual := convertStrings(to); !slices.Equal(toSQL, actual) {
+			t.Errorf("Diff call %d modified the target DDL:%s", i+1, formatDDLMismatch(toSQL, actual))
+		}
+	}
 }
